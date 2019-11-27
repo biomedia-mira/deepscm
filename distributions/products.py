@@ -141,3 +141,16 @@ def _prod_nmvn_nmvn(p: NaturalMultivariateNormal, q: NaturalMultivariateNormal, 
 @register_product(NaturalMultivariateNormal, MultivariateNormal)
 def _prod_nmvn_mvn(p: NaturalMultivariateNormal, q: MultivariateNormal, p_shape, q_shape):
     return _prod_nmvn_nmvn(p, NaturalMultivariateNormal.from_standard(q), p_shape, q_shape)
+
+
+@register_product(Factorised, Factorised)
+def _prod_factorised_factorised(p: Factorised, q: Factorised, p_shape, q_shape):
+    if len(p.factors) != len(q.factors):
+        raise ValueError("Factorised distributions must have the same number of factors")
+    expand = p_shape != p.batch_shape or q_shape != q.batch_shape
+    pq_factors_lognorms = [product(p_factor, q_factor, expand)
+                           for p_factor, q_factor in zip(p.factors, q.factors)]
+    pq_factors, pq_lognorms = zip(*pq_factors_lognorms)
+    pq = Factorised(list(pq_factors))
+    pq_lognorm = sum(pq_lognorms)
+    return pq, pq_lognorm
