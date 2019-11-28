@@ -4,6 +4,7 @@ import torch
 import torch.distributions as td
 
 from distributions.natural_mvn import NaturalMultivariateNormal
+from distributions.products import product
 from util import posdef_solve
 
 T = TypeVar('T', bound=td.Distribution)
@@ -47,7 +48,10 @@ class Mixture(td.Distribution, Generic[T]):
         return torch.logsumexp(self.mixing.logits + log_liks, dim=-1)
 
     def posterior(self, potentials: T) -> 'Mixture':
-        raise NotImplementedError
+        post_components, post_lognorm = product(potentials, self.components, expand=True)
+        post_logits = self.mixing.logits.unsqueeze(-1) + post_lognorm
+        post_mixing = td.Categorical(logits=post_logits)
+        return Mixture(post_mixing, post_components)
 
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
@@ -108,7 +112,8 @@ if __name__ == '__main__':
     print("mixing", mixing.batch_shape, mixing.event_shape)
     print("components", components.batch_shape, components.event_shape)
     # mixture = MultivariateNormalMixture(mixing, components)
-    mixture = NaturalMultivariateNormalMixture(mixing, NaturalMultivariateNormal.from_standard(components))
+    # mixture = NaturalMultivariateNormalMixture(mixing, NaturalMultivariateNormal.from_standard(components))
+    mixture = Mixture(mixing, NaturalMultivariateNormal.from_standard(components))
     print("mixture", mixture.batch_shape, mixture.event_shape)
     probe = td.MultivariateNormal(mean[:3]+1*torch.tensor([1., -1.]), .2 * var[:3])
     post_mixture = mixture.posterior(probe)
