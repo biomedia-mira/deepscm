@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from scripts import data_util, spec_util
 # from models import vae_old as vae, load_checkpoint, save_checkpoint
-from models import vae, load_checkpoint, save_checkpoint
+from models import mv_vae, vae, load_checkpoint, save_checkpoint
 from morphomnist.util import plot_grid
 
 
@@ -24,7 +24,7 @@ def test(model: vae.VAE, real_data):
 
 def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional[Sequence[Number]],
          ckpt_root: str, latent_dim: int, num_epochs: int,
-         batch_size: int, save: bool, resume: bool, plot: bool):
+         batch_size: int, save: bool, resume: bool, plot: bool, mvvae: bool):
     device = torch.device('cuda' if use_cuda else 'cpu')
 
     if isinstance(data_dirs, str):
@@ -43,7 +43,10 @@ def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional
     test_loader = DataLoader(test_set, batch_size=test_batch_size, shuffle=True, **dl_kwargs)
     num_batches = len(train_loader.dataset) // train_loader.batch_size
 
-    model = vae.VAE(latent_dim, device)
+    if mvvae:
+        model = mv_vae.MVVAE(latent_dim, device, encoder=mv_vae.Encoder)
+    else:
+        model = vae.VAE(latent_dim, device)
     trainer = vae.Trainer(model)
     trainer.to(device)
 
@@ -88,9 +91,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', choices=['cpu', 'cuda'],
                         help="device to use for training (default: use CUDA if available)")
-    parser.add_argument('--save', action='store_true',
+    parser.add_argument('--save', action='store_true', default=False,
                         help="save training state after each training epoch")
-    parser.add_argument('--resume', action='store_true',
+    parser.add_argument('--resume', action='store_true', default=False,
                         help="resume training from latest checkpoint, if available")
     parser.add_argument('--checkpoint',
                         help="root directory where checkpoints are saved")
@@ -107,12 +110,14 @@ if __name__ == '__main__':
                               "positive of the same length as the list of directories"))
     parser.add_argument('--latent', type=int, required=True,
                         help="VAE latent dimension")
+    parser.add_argument('--mvvae', default=False, action='store_true',
+                        help="Whether to predict full covariance")
 
     # argv = None
-    argv = ("--epochs 20 --data /vol/biomedic/users/dc315/mnist/plain "
-            "--checkpoint /data/deepgen/checkpoints "
-            "--latent 10 --save").split()
-    args = parser.parse_args(argv)
+    # argv = ("--epochs 20 --data /vol/biomedic/users/dc315/mnist/plain "
+    #         "--checkpoint /data/deepgen/checkpoints "
+    #         "--latent 10 --save").split()
+    args = parser.parse_args()
     print(args)
 
     use_cuda = (args.device == 'cuda') if args.device else torch.cuda.is_available()
@@ -129,4 +134,4 @@ if __name__ == '__main__':
 
     main(use_cuda=use_cuda, data_dirs=args.data, weights=args.weights, ckpt_root=args.checkpoint,
          latent_dim=args.latent, num_epochs=args.epochs, batch_size=args.batchsize,
-         save=args.save, resume=args.resume, plot=True)
+         save=args.save, resume=args.resume, plot=True, mvvae=args.mvvae)

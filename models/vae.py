@@ -96,18 +96,23 @@ class Decoder(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, latent_dim: int, device=None):
+    def __init__(self, latent_dim: int, device=None,
+                 encoder=Encoder, decoder=Decoder):
         super().__init__()
         self.latent_dim = latent_dim
 
-        self.enc = Encoder(self.latent_dim)
-        self.dec = Decoder(self.latent_dim)
+        self.enc = encoder(self.latent_dim)
+        self.dec = decoder(self.latent_dim)
         if device is None:
             device = self.device
-        mean, std = torch.zeros(latent_dim, device=device), torch.ones(latent_dim, device=device)
-        self.prior = td.Independent(td.Normal(mean, std), 1)
+
+        self.prior = self._get_prior(latent_dim, device)
 
         self.apply(_weights_init)
+
+    def _get_prior(self, latent_dim, device):
+        mean, std = torch.zeros(latent_dim, device=device), torch.ones(latent_dim, device=device)
+        return td.Independent(td.Normal(mean, std), 1)
 
     def forward(self, data):
         posteriors = self.enc.posterior(data)
