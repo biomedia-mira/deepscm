@@ -43,6 +43,16 @@ class Mixture(td.Distribution, Generic[T]):
         full_shape = sample_shape + batch_shape + self.event_shape
         return sample.view(thin_shape).expand(full_shape)
 
+    @property
+    def mean(self):
+        probs = self.mixing.probs  # (..., K)
+        means = self.components.mean  # (..., K) + event_shape
+        ndim = len(self.event_shape)
+        empty_event_shape = torch.Size([1] * ndim)
+        probs = probs.reshape(probs.shape + empty_event_shape)
+        mean = (probs * means).sum(-ndim - 1)
+        return mean
+
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         log_liks = self.components.log_prob(self._broadcast(value))
         return torch.logsumexp(self.mixing.logits + log_liks, dim=-1)
@@ -135,6 +145,7 @@ if __name__ == '__main__':
                extent=[x[0], x[-1], y[0], y[-1]])
     plt.scatter(*samples.T, c='k', s=4)
     plt.contour(xx, yy, probe_zz.exp(), cmap='inferno')
+    plt.plot(*mixture.mean, 'wo')
     plt.show()
 
     plt.imshow(post_zz.exp().T, interpolation='bilinear', origin='lower',
@@ -142,5 +153,6 @@ if __name__ == '__main__':
     plt.scatter(*post_samples.T, c='k', s=2)
     plt.contour(xx, yy, zz.exp(), cmap='inferno')
     plt.contour(xx, yy, probe_zz.exp(), cmap='inferno')
+    plt.plot(*post_mixture.mean[1], 'wo')
     plt.show()
     # mixture.posterior(td.Normal(mean, std))
