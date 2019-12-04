@@ -57,7 +57,7 @@ class MixtureCovariateSIN(nn.Module):
 
     def rsample(self, sample_shape=torch.Size()):
         covariates, latents = _rsample_factorised_mixture(self.prior_mixture, sample_shape)
-        data = self.decoder(covariates, latents)
+        data = self.decoder.likelihood(covariates, latents).rsample()
         return data, covariates, latents
 
     def condition(self, *, data=None, covariates=None, latents=None):  # kwargs only
