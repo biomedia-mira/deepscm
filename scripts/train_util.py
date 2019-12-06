@@ -14,11 +14,9 @@ def save_checkpoint(model: torch.nn.Module, ckpt_dir: str, epoch: int) -> str:
 
 def load_checkpoint(model: torch.nn.Module, path: str, epoch=None) -> int:
     pattern = re.compile(r'(?<=-)\d+(?=.pth$)')
-
     def get_epoch(f):
         # return int(f.split('.')[0].split('-')[-1])
         return int(pattern.findall(f)[0])
-
     filenames = [filename for filename in os.listdir(path) if filename.endswith('.pth')]
     print(f"Available checkpoints in {path}:")
     for f in filenames:
@@ -31,12 +29,10 @@ def load_checkpoint(model: torch.nn.Module, path: str, epoch=None) -> int:
             ckpt_filename = next(f for f in filenames if get_epoch(f) == epoch)
         except StopIteration:
             raise ValueError(f"No checkpoint for epoch {epoch} in {path}")
-    ckpt_path = os.path.join(path, ckpt_filename)
-    if not os.path.exists(ckpt_path):
-        raise FileNotFoundError(f"Invalid checkpoint directory: {path}")
-    state_dict = torch.load(ckpt_path)
+    state_dict = torch.load(os.path.join(path, ckpt_filename))
     model.load_state_dict(state_dict)
     return epoch
+
 
 
 class TensorBoardLogger(object):

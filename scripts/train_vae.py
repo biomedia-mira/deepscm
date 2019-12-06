@@ -11,7 +11,7 @@ from scripts.train_util import TensorBoardLogger, save_checkpoint, load_checkpoi
 
 def main(device: str,
          job_dir: str,
-         checkpoint: str,
+         resume: bool,
          save_every: int,
          data_dirs: Union[str, Sequence[str]],
          weights: Optional[Sequence[Number]],
@@ -30,8 +30,9 @@ def main(device: str,
 
     job_name = spec_util.format_setup_spec('VAE', latent_dim, dataset_names)
     print(f"Training {job_name}...")
-    logger = TensorBoardLogger(os.path.join(job_dir, job_name, 'logs'))
-    ckpt_dir = os.path.join(job_dir, job_name, 'checkpoints')
+    job_dir = os.path.join(job_dir, job_name)
+    logger = TensorBoardLogger(os.path.join(job_dir, 'logs'))
+    ckpt_dir = os.path.join(job_dir, 'checkpoints')
 
     train_set = data_util.get_dataset(data_dirs, weights, train=True)
     test_set = data_util.get_dataset(data_dirs, weights, train=False)
@@ -49,10 +50,14 @@ def main(device: str,
     test_cycle = itertools.cycle(test_loader)
 
     start_epoch = -1
-    if checkpoint:
-        start_epoch = load_checkpoint(trainer, ckpt_dir)
+    if resume:
+        start_epoch = load_checkpoint(model, ckpt_dir)
         test_outputs = tester.step(next(test_cycle)[0])
         logger.log(test_outputs, start_epoch)
+    else:
+        print(f"Clearing existing checkpoints in {ckpt_dir}")
+        for filename in os.listdir(ckpt_dir):
+            os.remove(os.path.join(ckpt_dir, filename))
 
     for epoch in range(start_epoch + 1, num_epochs):
         trainer.model.train()
@@ -83,8 +88,8 @@ if __name__ == '__main__':
                         help="device to use for training (default: use CUDA if available)")
     parser.add_argument('--job-dir',
                         help="directory where logs and checkpoints will be saved")
-    parser.add_argument('--checkpoint', default=None,
-                        help="path to checkpoint from which to resume training if provided")
+    parser.add_argument('--resume', type=bool, default=False,
+                        help="resume training from latest checkpoint, if available")
     parser.add_argument('--save-every', type=int, default=None,
                         help="save training state every given amount of epochs, if 0 never save")
     parser.add_argument('--num-epochs', type=int, required=True,
