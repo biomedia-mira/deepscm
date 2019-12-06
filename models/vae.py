@@ -155,11 +155,13 @@ class Trainer(nn.Module):
         kl_div = kl_div.sum()
 
         self.opt.zero_grad()
-        (rec_loss + self.beta * kl_div).backward()
+        total_loss = rec_loss + self.beta * kl_div
+        total_loss.backward()
         self.opt.step()
 
         if verbose:
             print(f"rec_loss = {rec_loss.item():6g}, KL_div = {kl_div.item():6g}")
+        return {'total_loss': total_loss, 'rec_loss': rec_loss, 'kl_div': kl_div}
 
     def forward(self, real_data, verbose: bool = False):
-        self.step(real_data, verbose)
+        return self.step(real_data, verbose)

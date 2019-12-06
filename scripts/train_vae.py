@@ -1,7 +1,7 @@
 import os
 from numbers import Number
 from typing import Optional, Sequence, Union
-
+import torchvision
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
@@ -10,22 +10,51 @@ from scripts import data_util, spec_util
 # from models import vae_old as vae, load_checkpoint, save_checkpoint
 from models import mv_vae, vae, load_checkpoint, save_checkpoint
 from morphomnist.util import plot_grid
+from torch.utils.tensorboard import SummaryWriter
+
+class TensorBoardLogger(object):
+    def __init__(self, log_dir):
+        self.writer = SummaryWriter(log_dir=log_dir)
+
+    def log(self, tensor_dict, epoch):
+        for name, tensor in tensor_dict.items():
+            ndim = tensor.ndim
+            if ndim <= 1:
+                self.writer.add_scalar(name, tensor, epoch)
+            elif ndim == 3:
+                self.writer.add_image(name, tensor, epoch)
+            elif ndim == 4:
+                self.writer.add_images(name, tensor, epoch)
+            else:
+                raise ValueError(f'No method to log tensor with ndim {ndim:3d}.')
+#
+# def grayscale_to_rgb(images):
 
 
-def test(model: vae.VAE, real_data):
+def test(model: vae.VAE, real_data, logger, epoch):
     model.eval()
     with torch.no_grad():
         real_data = real_data.to(model.device).unsqueeze(1).float() / 255.
-        recon_data = model(real_data)[-1].stddev
-        plot_grid(torch.cat([real_data[:32], recon_data[:32]], dim=0).cpu(),
-                  figsize=(8, 8), gridspec_kw=dict(wspace=0, hspace=0))
-        plt.show()
+        recon_data = model(real_data)[-1]
+        samples = model.dec(model.prior.sample((len(real_data), )))
+        merged = torchvision.utils.make_grid(torch.cat((real_data, recon_data.mean, recon_data.stddev)), nrow=len(real_data))
+        logger.log({'data/real': real_data,
+                    'data/recon_mean': recon_data.mean,
+                    'data/recon_stddev': recon_data.stddev,
+                    'data_stacked': merged,
+                    'samples': samples},
+                   epoch)
+        # plot_grid(torch.cat([real_data[:32], recon_data[:32]], dim=0).cpu(),
+        #           figsize=(8, 8), gridspec_kw=dict(wspace=0, hspace=0))
+        # plt.show()
 
 
 def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional[Sequence[Number]],
          ckpt_root: str, latent_dim: int, num_epochs: int,
          batch_size: int, save: bool, resume: bool, plot: bool, mvvae: bool):
     device = torch.device('cuda' if use_cuda else 'cpu')
+
+    logger = TensorBoardLogger(log_dir=os.path.join(ckpt_root, 'logs'))
 
     if isinstance(data_dirs, str):
         data_dirs = [data_dirs]
@@ -57,7 +86,7 @@ def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional
         try:
             start_epoch = load_checkpoint(trainer, ckpt_dir)
             if plot:
-                test(model, next(test_iterator)[0])
+                test(model, next(test_iterator)[0], logger, start_epoch)
         except ValueError:
             print(f"No checkpoint to resume from in {ckpt_dir}")
         except FileNotFoundError:
@@ -67,8 +96,8 @@ def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional
             print(f"Clearing existing checkpoints in {ckpt_dir}")
             for filename in os.listdir(ckpt_dir):
                 os.remove(os.path.join(ckpt_dir, filename))
-
     for epoch in range(start_epoch + 1, num_epochs):
+        epoch_outputs = None
         trainer.train()
         for batch_idx, (data, _) in enumerate(train_loader):
             verbose = batch_idx % 10 == 0
@@ -76,13 +105,20 @@ def main(use_cuda: bool, data_dirs: Union[str, Sequence[str]], weights: Optional
                 print(f"[{epoch}/{num_epochs}: {batch_idx:3d}/{num_batches:3d}] ", end='')
 
             real_data = data.to(device).unsqueeze(1).float() / 255.
-            trainer.step(real_data, verbose)
+            batch_outputs = trainer.step(real_data, verbose)
+            if epoch_outputs is None:
+                epoch_outputs = batch_outputs
+            else:
+                for key, value in batch_outputs.items():
+                    epoch_outputs[key] += value
+
+        logger.log(epoch_outputs, epoch)
 
         if save:
             save_checkpoint(trainer, ckpt_dir, epoch)
 
         if plot:
-            test(model, next(test_iterator)[0])
+            test(model, next(test_iterator)[0], logger, epoch)
 
 
 if __name__ == '__main__':
