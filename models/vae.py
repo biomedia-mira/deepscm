@@ -1,6 +1,7 @@
 import torch
 import torch.distributions as td
 from torch import nn
+import torchvision
 
 
 class Encoder(nn.Module):
@@ -8,20 +9,20 @@ class Encoder(nn.Module):
         super().__init__()
         self.h1_nchan = 64
         self.conv1 = nn.Sequential(
-                nn.Conv2d(1, self.h1_nchan, kernel_size=4, stride=2, padding=1),
-                nn.LeakyReLU(.1, inplace=True)
+            nn.Conv2d(1, self.h1_nchan, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(.1, inplace=True)
         )
         self.h2_nchan = 128
         self.conv2 = nn.Sequential(
-                nn.Conv2d(self.h1_nchan, self.h2_nchan, kernel_size=4, stride=2, padding=1),
-                nn.BatchNorm2d(self.h2_nchan),
-                nn.LeakyReLU(.1, inplace=True)
+            nn.Conv2d(self.h1_nchan, self.h2_nchan, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(self.h2_nchan),
+            nn.LeakyReLU(.1, inplace=True)
         )
         self.h3_dim = 1024
         self.fc1 = nn.Sequential(
-                nn.Linear(7 * 7 * self.h2_nchan, self.h3_dim),
-                nn.BatchNorm1d(self.h3_dim),
-                nn.LeakyReLU(.1, inplace=True)
+            nn.Linear(7 * 7 * self.h2_nchan, self.h3_dim),
+            nn.BatchNorm1d(self.h3_dim),
+            nn.LeakyReLU(.1, inplace=True)
         )
         self.fc2_mean = nn.Linear(self.h3_dim, latent_dim)
         self.fc2_logvar = nn.Linear(self.h3_dim, latent_dim)
@@ -136,14 +137,14 @@ def _weights_init(m):
         nn.init.constant_(m.bias.data, 0.)
 
 
-class Trainer(nn.Module):
+class Trainer(object):
     def __init__(self, model: VAE, beta: float = 1., lr: float = 1e-3):
-        super().__init__()
         self.model = model
         self.beta = beta
 
         params = list(self.model.enc.parameters()) + list(self.model.dec.parameters())
         self.opt = torch.optim.Adam(params, lr=lr, betas=(.5, .99))
+        self.losses = None
 
     def step(self, data, verbose: bool = False):
         posteriors, latents, likelihoods = self.model(data)
@@ -155,11 +156,40 @@ class Trainer(nn.Module):
         kl_div = kl_div.sum()
 
         self.opt.zero_grad()
-        (rec_loss + self.beta * kl_div).backward()
+        total_loss = rec_loss + self.beta * kl_div
+        total_loss.backward()
         self.opt.step()
 
         if verbose:
             print(f"rec_loss = {rec_loss.item():6g}, KL_div = {kl_div.item():6g}")
 
-    def forward(self, real_data, verbose: bool = False):
-        self.step(real_data, verbose)
+        losses = {'total_loss': total_loss, 'rec_loss': rec_loss, 'kl_div': kl_div}
+        if self.losses is None:
+            self.losses = losses
+        else:
+            for key, value in losses.items():
+                self.losses[key] += value
+
+    def get_and_reset_losses(self):
+        losses = self.losses.copy()
+        self.losses = None
+        return losses
+
+
+class Tester(object):
+    def __init__(self, model: VAE):
+        self.model = model
+
+    def step(self, real_data):
+        self.model.eval()
+        with torch.no_grad():
+            real_data = real_data.to(self.model.device).unsqueeze(1).float() / 255.
+            recon_data = self.model(real_data)[-1]
+            samples = self.model.dec(self.model.prior.sample((len(real_data),)))
+            stacked = torchvision.utils.make_grid(torch.cat((real_data, recon_data.mean, recon_data.stddev)),
+                                                  nrow=len(real_data))
+            return {'data/real': real_data,
+                    'data/recon_mean': recon_data.mean,
+                    'data/recon_stddev': recon_data.stddev,
+                    'data_stacked': stacked,
+                    'samples': samples}
