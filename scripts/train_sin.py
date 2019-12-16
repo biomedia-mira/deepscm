@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from scripts import data_util, spec_util
 from models import sin, gmm, vae, mixture, mv_vae
 import itertools
-from scripts.train_util import TensorBoardLogger, save_checkpoint, load_checkpoint
+from scripts.train_util import TensorBoardLogger, save_checkpoint, load_checkpoint, set_seed
 
 
 def main(device: str,
@@ -20,7 +20,11 @@ def main(device: str,
          n_components: int,
          num_epochs: int,
          train_batch_size: int,
-         test_batch_size: int):
+         test_batch_size: int,
+         seed: int,
+         lr: float):
+
+    set_seed(seed)
 
     use_cuda = (args.device == 'cuda') if device else torch.cuda.is_available()
     device = torch.device('cuda' if use_cuda else 'cpu')
@@ -52,7 +56,7 @@ def main(device: str,
     model = sin.MixtureSIN(prior, mv_vae.Encoder(latent_dim), vae.Decoder(latent_dim), gmm.MultivariateGMM(n_components, latent_dim))
     model.to(device)
 
-    trainer = sin.Trainer(model)
+    trainer = sin.Trainer(model, lr)
     tester = vae.Tester(model)
 
     test_cycle = itertools.cycle(test_loader)
@@ -114,10 +118,10 @@ if __name__ == '__main__':
     parser.add_argument('--weights', type=float, nargs='+', required=False,
                         help=("weights for randomly interleaving data directories; must be "
                               "positive of the same length as the list of directories"))
-    parser.add_argument('--latent-dim', type=int, required=True,
-                        help="VAE latent dimension", default=64)
-    parser.add_argument('--n-components', type=int, required=True,
-                        help="Number GMM components", default=10)
+    parser.add_argument('--latent-dim', type=int, help="VAE latent dimension", default=64)
+    parser.add_argument('--n-components', type=int, help="Number GMM components", default=10)
+    parser.add_argument('--seed', type=int, help="Seed", default=42)
+    parser.add_argument('--lr', type=float, help="Learning rate", default=1e-4)
 
     args = parser.parse_args()
     print(args)
