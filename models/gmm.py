@@ -3,7 +3,10 @@
 import torch
 import torch.distributions as td
 from torch import nn
+<<<<<<< HEAD
 from torch.nn import functional as F
+=======
+>>>>>>> a9f508a7fc1299dae410157e1a6b8060e53b5957
 
 from distributions.natural_nw import NaturalNormalWishart
 from models import natural_gmm, mixture
@@ -109,7 +112,8 @@ class MultivariateGMM(nn.Module):
         self.means = nn.Parameter(torch.randn(n_components, n_dimensions))
 
         cov_low_tri_dim = int((n_dimensions * (n_dimensions - 1)) / 2)
-        self.diag = nn.Parameter(torch.randn(n_components, n_dimensions))
+
+        self.diag = nn.Parameter(torch.rand(n_components, n_dimensions))
         self.tril_vec = nn.Parameter(torch.randn(n_components, cov_low_tri_dim))
 
         self.distribution = self._get_distribution()
