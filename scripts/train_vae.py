@@ -55,9 +55,10 @@ def main(device: str,
         test_outputs = tester.step(next(test_cycle)[0])
         logger.log(test_outputs, start_epoch)
     else:
-        print(f"Clearing existing checkpoints in {ckpt_dir}")
-        for filename in os.listdir(ckpt_dir):
-            os.remove(os.path.join(ckpt_dir, filename))
+        if os.path.isdir(ckpt_dir):
+            print(f"Clearing existing checkpoints in {ckpt_dir}")
+            for filename in os.listdir(ckpt_dir):
+                os.remove(os.path.join(ckpt_dir, filename))
 
     for epoch in range(start_epoch + 1, num_epochs):
         trainer.model.train()
