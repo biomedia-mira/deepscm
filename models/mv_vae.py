@@ -27,10 +27,7 @@ class Encoder(nn.Module):
         self.fc2_mean = nn.Linear(self.h3_dim, latent_dim)
         cov_low_tri_dim = int((latent_dim * (latent_dim - 1)) / 2)
         self.fc2_tril = nn.Linear(self.h3_dim, cov_low_tri_dim)
-        self.fc2_diag = nn.Sequential(
-            nn.Linear(self.h3_dim, latent_dim),
-            nn.Softplus()
-        )
+        self.fc2_diag = nn.Linear(self.h3_dim, latent_dim)
 
     def tril(self, diag: torch.Tensor, tril_vec: torch.Tensor):
         dim = diag.shape[-1]
@@ -46,7 +43,7 @@ class Encoder(nn.Module):
         x = self.conv2(x).view(-1, 7 * 7 * self.h2_nchan)
         x = self.fc1(x)
         mean = self.fc2_mean(x)
-        diag = self.fc2_diag(x)
+        diag = torch.exp(self.fc2_diag(x))
         tril_vec = self.fc2_tril(x)
 
         tril = self.tril(diag, tril_vec)
