@@ -26,7 +26,7 @@ class Trainer(object):
         self.model = model
 
         params = list(self.model.enc.parameters()) + list(self.model.dec.parameters()) + list(self.model.var_mixture.parameters())
-        self.opt = torch.optim.Adam(params, lr=lr, betas=(.5, .99))
+        self.opt = torch.optim.Adam(params, lr=lr, betas=(.5, .99), eps=1e-5)
 
     def step(self, data, verbose=False):
         potentials, posteriors, latents, likelihoods = self.model(data)
