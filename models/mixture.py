@@ -33,7 +33,7 @@ class Mixture(td.Distribution, Generic[T]):
         thin_shape = [*sample_shape, *batch_shape, 1] + [1] * len(self.event_shape)
         sdim = len(sample_shape) + len(batch_shape)
         assignments = assignments.view(thin_shape).expand(full_shape)
-        return samples.gather(sdim, assignments, sparse_grad=True).squeeze(sdim)
+        return samples.gather(sdim, assignments, sparse_grad=False).squeeze(sdim)
 
     def _broadcast(self, sample: torch.Tensor) -> torch.Tensor:
         sample_shape = torch.Size(sample.shape[:-1])
