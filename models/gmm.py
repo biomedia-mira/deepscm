@@ -3,10 +3,7 @@
 import torch
 import torch.distributions as td
 from torch import nn
-<<<<<<< HEAD
 from torch.nn import functional as F
-=======
->>>>>>> a9f508a7fc1299dae410157e1a6b8060e53b5957
 
 from distributions.natural_nw import NaturalNormalWishart
 from models import natural_gmm, mixture
@@ -135,3 +132,6 @@ class MultivariateGMM(nn.Module):
 
     def forward(self, data):
         return self._get_distribution().log_prob(data)
+
+    def posterior(self, potentials):
+        return self._get_distribution().posterior(potentials)
