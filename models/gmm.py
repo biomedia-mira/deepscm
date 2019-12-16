@@ -2,9 +2,11 @@
 
 import torch
 import torch.distributions as td
+from torch import nn
+from torch.nn import functional as F
 
 from distributions.natural_nw import NaturalNormalWishart
-from models import natural_gmm
+from models import natural_gmm, mixture
 from util import triangular_logdet, mahalanobis, outer
 
 """
@@ -98,3 +100,34 @@ def inference(x, K):
     mixing_posterior, component_posteriors = m_step(x, r_nk, gmm.mixing_prior, gmm.component_prior)
 
     r_nk_new, pi = e_step(x, mixing_posterior, component_posteriors)
+
+
+class MultivariateGMM(nn.Module):
+    def __init__(self, n_components, n_dimensions):
+        super().__init__()
+        self.logits = nn.Parameter(torch.ones(n_components))
+        self.means = nn.Parameter(torch.randn(n_components, n_dimensions))
+
+        cov_low_tri_dim = int((n_dimensions * (n_dimensions - 1)) / 2)
+        self.diag = nn.Parameter(torch.randn(n_components, n_dimensions))
+        self.tril_vec = nn.Parameter(torch.randn(n_components, cov_low_tri_dim))
+
+        self.distribution = self._get_distribution()
+
+    def tril(self, diag: torch.Tensor, tril_vec: torch.Tensor):
+        dim = diag.shape[-1]
+        L = torch.diag_embed(torch.exp(diag))  # L is lower-triangular
+        L = L.to(diag.device)
+        i, j = torch.tril_indices(dim, dim, offset=-1)
+        L[..., i, j] = tril_vec
+
+        return L
+
+    def _get_distribution(self):
+        mixing = td.Categorical(logits=self.logits)
+        tril = self.tril(self.diag, self.tril_vec)
+        components = td.MultivariateNormal(self.means, scale_tril=tril)
+        return mixture.MultivariateNormalMixture(mixing, components)
+
+    def forward(self, data):
+        return self._get_distribution().log_prob(data)
