@@ -1,4 +1,6 @@
+import numpy as np
 import os
+import random
 import re
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -14,6 +16,7 @@ def save_checkpoint(model: torch.nn.Module, ckpt_dir: str, epoch: int) -> str:
 
 def load_checkpoint(model: torch.nn.Module, path: str, epoch=None) -> int:
     pattern = re.compile(r'(?<=-)\d+(?=.pth$)')
+
     def get_epoch(f):
         # return int(f.split('.')[0].split('-')[-1])
         return int(pattern.findall(f)[0])
@@ -33,6 +36,12 @@ def load_checkpoint(model: torch.nn.Module, path: str, epoch=None) -> int:
     model.load_state_dict(state_dict)
     return epoch
 
+
+def set_seed(seed: int):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 class TensorBoardLogger(object):
