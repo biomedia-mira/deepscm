@@ -19,11 +19,13 @@ _PARSERS = {
     'InfoGAN': _parse_infogan_spec,
     'VAE': int,
     'GAN': int,
+    'SIN': int
 }
 _FORMATTERS = {
     'InfoGAN': _format_infogan_spec,
     'VAE': str,
     'GAN': str,
+    'SIN': str
 }
 
 
