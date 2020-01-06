@@ -3,6 +3,7 @@ from typing import Generic, TypeVar, Union
 import torch
 import torch.distributions as td
 
+from distributions.multivariate import MultivariateDistribution
 from distributions.natural_mvn import NaturalMultivariateNormal
 from distributions.products import product
 from util import posdef_solve
@@ -58,6 +59,24 @@ class Mixture(td.Distribution, Generic[T]):
         post_logits = self.mixing.logits + post_lognorm
         post_mixing = td.Categorical(logits=post_logits)
         return Mixture(post_mixing, post_components)
+    
+
+class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistribution):
+    @property
+    def num_variables(self):
+        return self.event_shape[0]
+    
+    def marginalise(self, which_indices):
+        marg_components = self.components.marginalise(which_indices)
+        return MultiMixture(self.mixing, marg_components)
+
+    def condition(self, cond_dict):
+        marg_components = self.components.marginalise(cond_dict.keys())
+        marg_values = torch.concat(cond_dict.values(), -1)
+        cond_logits = self.mixing.logits + marg_components.log_prob(marg_values)
+        cond_mixing = td.Categorical(logits=cond_logits)
+        cond_components = self.components.condition(cond_dict)
+        return MultiMixture(cond_mixing, cond_components)
 
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):

@@ -4,6 +4,7 @@ import torch
 from torch.distributions import Distribution, register_kl, kl_divergence
 from torch.distributions.constraints import Constraint
 
+from .multivariate import MultivariateDistribution
 
 def _iterate_parts(value, ndims: Sequence[int]):
     for ndim in ndims:
@@ -21,7 +22,7 @@ class _FactorisedSupport(Constraint):
                    for support, part in zip(self.supports, _iterate_parts(value, self.ndims)))
 
 
-class Factorised(Distribution):
+class Factorised(MultivariateDistribution):
     arg_constraints = {}
 
     def __init__(self, factors: Sequence[Distribution], validate_args=None):
@@ -42,10 +43,20 @@ class Factorised(Distribution):
 
     def rsample(self, sample_shape=torch.Size()):
         return torch.cat([factor.rsample(sample_shape) for factor in self.factors], dim=-1)
+    
+    @property
+    def num_variables(self):
+        return len(self.factors)
 
-    def marginal(self, factor_indices: Sequence[int]) -> 'Factorised':
+    def marginalise(self, factor_indices: Sequence[int]) -> 'Factorised':
         return Factorised([self.factors[i] for i in factor_indices],
                           validate_args=self._validate_args)
+
+    def condition(self, cond_dict):
+        marg_indices = [i for i in range(self.num_variables) if i not in cond_dict]
+        cond_dist = self.marginalise(marg_indices)
+        cond_batch_shape = cond_dict.values()[0].shape
+        return cond_dist.expand(cond_batch_shape)
 
     def log_prob(self, value):
         return sum(factor.log_prob(part)
