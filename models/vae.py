@@ -91,9 +91,17 @@ class Decoder(nn.Module):
         x = self.conv2(x)
         return x
 
-    def likelihood(self, x):
-        probs = self.forward(x)
-        return td.Independent(td.Bernoulli(probs), 3)
+    def likelihood(self, x: torch.Tensor):
+        if x.ndim == 2:
+            probs = self.forward(x)
+            bernoulli = td.Bernoulli(probs)
+        else:
+            sample_shape = x.shape[:-1]
+            event_shape = x.shape[-1]
+            probs = self.forward(x.view(-1, event_shape))
+            new_event_shape = probs.shape[1:]
+            bernoulli = td.Bernoulli(probs.view(*sample_shape, *new_event_shape))
+        return td.Independent(bernoulli, 3)
 
 
 class VAE(nn.Module):
