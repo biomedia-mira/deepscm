@@ -58,7 +58,7 @@ def main(device: str,
     model.to(device)
 
     trainer = sin.Trainer(model, lr, sample_all_components)
-    tester = vae.Tester(model)
+    tester = sin.Tester(model, device, use_double)
 
     test_cycle = itertools.cycle(test_loader)
 
