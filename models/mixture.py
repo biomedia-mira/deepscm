@@ -37,8 +37,8 @@ class Mixture(td.Distribution, Generic[T]):
 
     def _broadcast(self, sample: torch.Tensor) -> torch.Tensor:
         sample_shape = torch.Size(sample.shape[:-1])
-        batch_shape = self.components.batch_shape
-        empty_batch_shape = torch.Size([1] * len(batch_shape))
+        batch_shape = torch.Size([self.num_components])
+        empty_batch_shape = torch.Size([1])
         thin_shape = sample_shape + empty_batch_shape + self.event_shape
         full_shape = sample_shape + batch_shape + self.event_shape
         return sample.view(thin_shape).expand(full_shape)
