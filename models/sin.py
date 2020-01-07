@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torchvision
 
 from .mixture import Mixture
 
@@ -82,3 +83,28 @@ class Trainer(object):
         losses = self.losses.copy()
         self.losses = None
         return losses
+
+
+class Tester(object):
+    def __init__(self, model: MixtureSIN, device: torch.device, use_double: bool):
+        self.model = model
+        self.device = device
+        self.use_double = use_double
+
+    def step(self, real_data):
+        self.model.eval()
+        with torch.no_grad():
+            real_data = real_data.to(self.device).unsqueeze(1)
+            if self.use_double:
+                real_data = real_data.double() / 255.
+            else:
+                real_data = real_data.float() / 255.
+            recon_data = self.model(real_data)[-1]
+            samples = self.model.dec(self.model.prior_mixture.sample((len(real_data),)))
+            stacked = torchvision.utils.make_grid(torch.cat((real_data, recon_data.mean, recon_data.stddev)),
+                                                  nrow=len(real_data))
+            return {'data/real': real_data,
+                    'data/recon_mean': recon_data.mean,
+                    'data/recon_stddev': recon_data.stddev,
+                    'data_stacked': stacked,
+                    'samples': samples}
