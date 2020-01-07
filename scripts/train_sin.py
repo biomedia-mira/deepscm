@@ -23,7 +23,8 @@ def main(device: str,
          test_batch_size: int,
          seed: int,
          lr: float,
-         sample_all_components: bool):
+         sample_all_components: bool,
+         use_double: bool):
 
     set_seed(seed)
 
@@ -52,6 +53,8 @@ def main(device: str,
         gmm.MultivariateGMM(n_components, latent_dim),
         mv_vae.Encoder(latent_dim), vae.Decoder(latent_dim),
         gmm.MultivariateGMM(n_components, latent_dim))
+    if use_double:
+        model = model.double()
     model.to(device)
 
     trainer = sin.Trainer(model, lr, sample_all_components)
@@ -77,7 +80,11 @@ def main(device: str,
             if verbose:
                 print(f"[{epoch}/{num_epochs}: {batch_idx:3d}/{num_batches:3d}] ", end='')
 
-            real_data = data.to(device).unsqueeze(1).float() / 255.
+            real_data = data.to(device).unsqueeze(1)
+            if use_double:
+                real_data = real_data.double() / 255.
+            else:
+                real_data = real_data.float() / 255.
             trainer.step(real_data, verbose)
 
         losses = trainer.get_and_reset_losses()
@@ -122,6 +129,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, help="Learning rate", default=1e-4)
     parser.add_argument('--sample-all-components', default=False, action="store_true",
                         help="sample from all components")
+    parser.add_argument('--use_double', default=False, action="store_true",
+                        help="use double precision")
 
     args = parser.parse_args()
     print(args)

@@ -26,13 +26,14 @@ class MixtureSIN(nn.Module):
 
 
 class Trainer(object):
-    def __init__(self, model: MixtureSIN, lr: float = 1e-4, sample_all_components: bool = False):
+    def __init__(self, model: MixtureSIN, lr: float = 1e-4, sample_all_components: bool = False, verbose: bool = False):
         super().__init__()
         self.model = model
         self.sample_all_components = sample_all_components
 
         params = list(self.model.enc.parameters()) + list(self.model.dec.parameters()) + list(self.model.var_mixture.parameters())
         self.opt = torch.optim.Adam(params, lr=lr, betas=(.5, .99), eps=1e-5)
+        self.losses = None
 
     def step(self, data, verbose=False):
         potentials, posteriors, latents, likelihoods = self.model(data, sample_all_components=self.sample_all_components)
@@ -64,5 +65,20 @@ class Trainer(object):
         (-elbo).backward()
         self.opt.step()
 
+        if verbose:
+            print(f"elbo = {elbo.item():6g}")
+
+        losses = {'elbo': elbo}
+        if self.losses is None:
+            self.losses = losses
+        else:
+            for key, value in losses.items():
+                self.losses[key] += value
+
     def forward(self, real_data, verbose: bool = False):
         self.step(real_data, verbose)
+
+    def get_and_reset_losses(self):
+        losses = self.losses.copy()
+        self.losses = None
+        return losses
