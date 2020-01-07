@@ -138,3 +138,6 @@ class MultivariateGMM(nn.Module):
 
     def log_prob(self, data):
         return self._get_distribution().log_prob(data)
+
+    def sample(self, *args, **kwargs):
+        return self._get_distribution().sample(*args, **kwargs)
