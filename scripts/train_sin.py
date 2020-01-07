@@ -22,7 +22,8 @@ def main(device: str,
          train_batch_size: int,
          test_batch_size: int,
          seed: int,
-         lr: float):
+         lr: float,
+         sample_all_components: bool):
 
     set_seed(seed)
 
@@ -47,16 +48,13 @@ def main(device: str,
     test_loader = DataLoader(test_set, batch_size=test_batch_size, shuffle=True, **dl_kwargs)
     num_batches = len(train_loader.dataset) // train_loader.batch_size
 
-    locs = torch.eye(latent_dim)[:n_components]
-    locs = locs.to(device).contiguous()
-    prior = mixture.MultivariateNormalMixture(
-        torch.ones(n_components, device=device),
-        td.MultivariateNormal(locs, torch.eye(latent_dim, device=device).unsqueeze(0).repeat(n_components, 1, 1))
-    )
-    model = sin.MixtureSIN(prior, mv_vae.Encoder(latent_dim), vae.Decoder(latent_dim), gmm.MultivariateGMM(n_components, latent_dim))
+    model = sin.MixtureSIN(
+        gmm.MultivariateGMM(n_components, latent_dim),
+        mv_vae.Encoder(latent_dim), vae.Decoder(latent_dim),
+        gmm.MultivariateGMM(n_components, latent_dim))
     model.to(device)
 
-    trainer = sin.Trainer(model, lr)
+    trainer = sin.Trainer(model, lr, sample_all_components)
     tester = vae.Tester(model)
 
     test_cycle = itertools.cycle(test_loader)
@@ -122,6 +120,8 @@ if __name__ == '__main__':
     parser.add_argument('--n-components', type=int, help="Number GMM components", default=10)
     parser.add_argument('--seed', type=int, help="Seed", default=42)
     parser.add_argument('--lr', type=float, help="Learning rate", default=1e-4)
+    parser.add_argument('--sample-all-components', default=False, action="store_true",
+                        help="sample from all components")
 
     args = parser.parse_args()
     print(args)

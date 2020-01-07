@@ -15,7 +15,6 @@ class MixtureSIN(nn.Module):
     def forward(self, data, sample_all_components=False):
         potentials = self.enc.posterior(data)
 
-        _ = torch.cholesky(potentials.covariance_matrix.cpu())
         posteriors = self.var_mixture.posterior(potentials)
         if sample_all_components:
             latents = posteriors.components.rsample()  # batch shape: [N, K, D]
