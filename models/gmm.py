@@ -135,3 +135,6 @@ class MultivariateGMM(nn.Module):
 
     def posterior(self, potentials):
         return self._get_distribution().posterior(potentials)
+
+    def log_prob(self, data):
+        return self._get_distribution().log_prob(data)
