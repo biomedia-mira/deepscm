@@ -60,4 +60,4 @@ class MVVAE(VAE):
     def _get_prior(self, latent_dim, device):
         mean = torch.zeros(latent_dim, device=device)
         cov = torch.diag(torch.ones(latent_dim, device=device))
-        return td.MultivariateNormal(mean, cov)
+        return td.MultivariateNormal(mean, cov, validate_args=True)
