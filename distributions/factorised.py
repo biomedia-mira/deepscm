@@ -6,6 +6,7 @@ from torch.distributions.constraints import Constraint
 
 from .multivariate import MultivariateDistribution
 
+
 def _iterate_parts(value, ndims: Sequence[int]):
     for ndim in ndims:
         yield value[..., :ndim]
@@ -33,6 +34,15 @@ class Factorised(MultivariateDistribution):
                        for factor in self.factors]
         super().__init__(batch_shape, event_shape, validate_args)
 
+    def expand(self, batch_shape, _instance=None):
+        new = self._get_checked_instance(Factorised, _instance)
+        batch_shape = torch.Size(batch_shape)
+        new.factors = [factor.expand(batch_shape) for factor in self.factors]
+        new._ndims = self._ndims
+        super(Factorised, new).__init__(batch_shape, self.event_shape, validate_args=False)
+        new._validate_args = self._validate_args
+        return new
+
     @property
     def has_rsample(self):
         return any(factor.has_rsample for factor in self.factors)
@@ -48,14 +58,24 @@ class Factorised(MultivariateDistribution):
     def num_variables(self):
         return len(self.factors)
 
-    def marginalise(self, factor_indices: Sequence[int]) -> 'Factorised':
+    @property
+    def variable_shapes(self):
+        return [factor.event_shape[0] for factor in self.factors]
+
+    def _marginalise_single(self, factor_index: int) -> Distribution:
+        return self.factors[factor_index]
+
+    def _marginalise_multi(self, factor_indices: Sequence[int]) -> 'Factorised':
         return Factorised([self.factors[i] for i in factor_indices],
                           validate_args=self._validate_args)
 
-    def condition(self, cond_dict):
-        marg_indices = [i for i in range(self.num_variables) if i not in cond_dict]
+    def _marginalise(self, factor_indices: Sequence[int]) -> 'Factorised':
+        return Factorised([self.factors[i] for i in factor_indices],
+                          validate_args=self._validate_args)
+
+    def _condition(self, marg_indices, cond_indices, cond_values):
         cond_dist = self.marginalise(marg_indices)
-        cond_batch_shape = cond_dict.values()[0].shape
+        cond_batch_shape = torch.Size([cond_values[0].shape[0]])
         return cond_dist.expand(cond_batch_shape)
 
     def log_prob(self, value):
