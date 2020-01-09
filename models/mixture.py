@@ -64,19 +64,25 @@ class Mixture(td.Distribution, Generic[T]):
 class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistribution):
     @property
     def num_variables(self):
-        return self.event_shape[0]
+        return self.components.num_variables
+
+    @property
+    def variable_shapes(self):
+        return self.components.variable_shapes
     
     def marginalise(self, which_indices):
         marg_components = self.components.marginalise(which_indices)
-        return MultiMixture(self.mixing, marg_components)
+        return MultivariateMixture(self.mixing, marg_components)
 
-    def condition(self, cond_dict):
-        marg_components = self.components.marginalise(cond_dict.keys())
-        marg_values = torch.concat(cond_dict.values(), -1)
+    def _condition(self, marg_indices, cond_indices, cond_values):
+        cond_values = [self._broadcast(value) for value in cond_values]
+        marg_components = self.components.marginalise(cond_indices)
+        marg_values = torch.cat(cond_values, -1)
         cond_logits = self.mixing.logits + marg_components.log_prob(marg_values)
         cond_mixing = td.Categorical(logits=cond_logits)
+        cond_dict = dict(zip(cond_indices, cond_values))
         cond_components = self.components.condition(cond_dict)
-        return MultiMixture(cond_mixing, cond_components)
+        return MultivariateMixture(cond_mixing, cond_components)
 
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
@@ -145,6 +151,7 @@ if __name__ == '__main__':
     samples = mixture.sample([N])
     n = 1
     post_samples = post_mixture.sample([N])[:, n]
+    print("post_mixture", post_mixture.batch_shape, post_mixture.event_shape)
     print("sample", samples.shape)
 
     x = torch.linspace(-2, K - 1 + 2, 200)
@@ -152,8 +159,8 @@ if __name__ == '__main__':
     xx, yy = torch.meshgrid(x, y)
     xy = torch.stack([xx, yy], -1)
     zz = mixture.log_prob(xy)
-    post_zz = post_mixture.log_prob(xy)[:, :, 1]
-    probe_zz = probe.log_prob(xy.unsqueeze(-2))[:, :, 1]
+    post_zz = post_mixture.log_prob(xy[..., None, :])[:, :, 1]
+    probe_zz = probe.log_prob(xy[..., None, :])[:, :, 1]
 
     import matplotlib.pyplot as plt
     plt.imshow(zz.exp().T, interpolation='bilinear', origin='lower',
