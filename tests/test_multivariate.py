@@ -50,6 +50,15 @@ class BaseTests:
                 expected_event_shape = sum(var_shapes[i] for i in var_indices),
                 self.assertEqual(marg.event_shape, expected_event_shape)
 
+        def test_squeeze(self):
+            with self.assertRaises(RuntimeError):
+                self.dist.squeeze()
+            var_index = 0
+            marg = self.dist.marginalise([var_index])
+            squeezed = marg.squeeze()
+            self.assertEqual(squeezed.batch_shape, marg.batch_shape)
+            # self.assertEqual(squeezed.event_shape, marg.event_shape)
+
         def test_condition_shape(self):
             var_shapes = self.dist.variable_shapes
             for dims in [(0,), [0], (0, 1), list(range(self.dist.num_variables - 1))]:

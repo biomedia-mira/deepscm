@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Union
 
 import numpy as np
 from torch.distributions import Distribution
@@ -28,7 +28,7 @@ class MultivariateDistribution(Distribution):
     def _marginalise_multi(self, marg_indices) -> 'MultivariateDistribution':
         raise NotImplementedError
 
-    def marginalise(self, which) -> Distribution:
+    def marginalise(self, which) -> Union[Distribution, 'MultivariateDistribution']:
         if _is_single(which):
             self._check_index(which)
             return self._marginalise_single(which)
@@ -37,14 +37,22 @@ class MultivariateDistribution(Distribution):
                 self._check_index(index)
             return self._marginalise_multi(which)
 
-    def _condition(self, marg_indices, cond_indices, cond_values) -> Distribution:
+    def _condition(self, marg_indices, cond_indices, cond_values) -> 'MultivariateDistribution':
         raise NotImplementedError
 
-    def condition(self, cond_index_value_dict) -> Distribution:
+    def condition(self, cond_index_value_dict) -> 'MultivariateDistribution':
+        for index in cond_index_value_dict:
+            self._check_index(index)
         marg_indices = [i for i in range(self.num_variables) if i not in cond_index_value_dict]
         cond_indices = list(cond_index_value_dict.keys())
         cond_values = list(cond_index_value_dict.values())
         return self._condition(marg_indices, cond_indices, cond_values)
+
+    def squeeze(self) -> Distribution:
+        if self.num_variables != 1:
+            raise RuntimeError(f"Only univariate distributions can be squeezed "
+                               f"(num_variables={self.num_variables})")
+        return self.marginalise(0)
 
 
 class NamedMultivariateDistribution(Distribution):
