@@ -59,7 +59,7 @@ class Mixture(td.Distribution, Generic[T]):
 
     def posterior(self, potentials: T) -> 'Mixture':
         post_components, post_lognorm = product(potentials, self.components, expand=True)
-        post_logits = self.mixing.logits.unsqueeze(-1) + post_lognorm
+        post_logits = self.mixing.logits + post_lognorm
         post_mixing = td.Categorical(logits=post_logits)
         return Mixture(post_mixing, post_components)
 

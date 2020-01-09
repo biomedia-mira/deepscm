@@ -16,6 +16,7 @@ def register_product(type_p, type_q):
     Decorator to register a pairwise function with :meth:`product`.
     Usage::
 
+        # TODO: Fix and explain the expected signature for product functions
         @register_product(Normal, Normal)
         def prod_normal_normal(p, q):
             # insert implementation here
@@ -63,14 +64,13 @@ def product(p: Distribution, q: Distribution, expand=True) -> Tuple[Distribution
     if p.event_shape != q.event_shape:
         raise ValueError("Cannot compute the product of distributions with different event shapes")
     type_p, type_q = type(p), type(q)
+    p_shape, q_shape = _broadcast_shapes(p.batch_shape, q.batch_shape, expand)
     try:
         prod_fcn = _PROD_REGISTRY[type_p, type_q]
-        p_shape, q_shape = _broadcast_shapes(p.batch_shape, q.batch_shape, expand)
         return prod_fcn(p, q, p_shape, q_shape)
     except KeyError:
         try:
             prod_fcn = _PROD_REGISTRY[type_q, type_p]
-            q_shape, p_shape = _broadcast_shapes(q.batch_shape, p.batch_shape, expand)
             return prod_fcn(q, p, q_shape, p_shape)
         except KeyError:
             raise NotImplementedError(f"No product implemented for {type_p} vs. {type_q}")
