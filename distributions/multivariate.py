@@ -1,19 +1,50 @@
 from typing import Sequence
 
-import torch
+import numpy as np
 from torch.distributions import Distribution
 
 
+def _is_single(idx):
+    return np.ndim(idx) == 0
+
+
 class MultivariateDistribution(Distribution):
-    @abstractproperty
-    def num_variables(self):
+    @property
+    def num_variables(self) -> int:
         raise NotImplementedError
 
-    def marginalise(self, which_indices):
+    @property
+    def variable_shapes(self) -> Sequence[int]:
         raise NotImplementedError
-    
-    def condition(self, cond_index_value_dict):
+
+    def _check_index(self, index):
+        if index < 0 or index >= self.num_variables:
+            raise ValueError(f"Variable index ({index}) must be between 0 and "
+                             f"number of variables ({self.num_variables})")
+
+    def _marginalise_single(self, marg_index) -> Distribution:
         raise NotImplementedError
+
+    def _marginalise_multi(self, marg_indices) -> 'MultivariateDistribution':
+        raise NotImplementedError
+
+    def marginalise(self, which) -> Distribution:
+        if _is_single(which):
+            self._check_index(which)
+            return self._marginalise_single(which)
+        else:
+            for index in which:
+                self._check_index(index)
+            return self._marginalise_multi(which)
+
+    def _condition(self, marg_indices, cond_indices, cond_values) -> Distribution:
+        raise NotImplementedError
+
+    def condition(self, cond_index_value_dict) -> Distribution:
+        marg_indices = [i for i in range(self.num_variables) if i not in cond_index_value_dict]
+        cond_indices = list(cond_index_value_dict.keys())
+        cond_values = list(cond_index_value_dict.values())
+        return self._condition(marg_indices, cond_indices, cond_values)
 
 
 class NamedMultivariateDistribution(Distribution):
