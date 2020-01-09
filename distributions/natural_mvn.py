@@ -5,6 +5,8 @@ import torch.distributions as td
 from torch.distributions import constraints
 from torch.distributions.utils import lazy_property
 
+from distributions.multivariate import MultivariateDistribution
+from distributions.mvn import MultivariateNormal
 from util import inverse_cholesky, mahalanobis, matvec, triangular_logdet
 
 _LOG_2PI = math.log(2. * math.pi)
@@ -20,7 +22,7 @@ class _NegativeDefinite(constraints.Constraint):
         return value.symeig(eigenvectors=False)[0][..., -1] < 0.0
 
 
-class NaturalMultivariateNormal(td.ExponentialFamily):
+class NaturalMultivariateNormal(td.ExponentialFamily, MultivariateDistribution):
     arg_constraints = {'nat_param1': constraints.real_vector,
                        'nat_param2': _NegativeDefinite()}
     support = constraints.real
@@ -94,9 +96,9 @@ class NaturalMultivariateNormal(td.ExponentialFamily):
         new._validate_args = self._validate_args
         return new
 
-    def to_standard(self) -> td.MultivariateNormal:
-        return td.MultivariateNormal(self.mean, scale_tril=self.scale_tril,
-                                     validate_args=self._validate_args)
+    def to_standard(self) -> MultivariateNormal:
+        return MultivariateNormal(self.mean, scale_tril=self.scale_tril,
+                                  validate_args=self._validate_args)
 
     @staticmethod
     def from_standard(mvn: td.MultivariateNormal) -> 'NaturalMultivariateNormal':
@@ -104,6 +106,28 @@ class NaturalMultivariateNormal(td.ExponentialFamily):
         nat_param2 = -.5 * precision
         nat_param1 = matvec(precision, mvn.mean)
         return NaturalMultivariateNormal(nat_param1, nat_param2, validate_args=mvn._validate_args)
+
+    @property
+    def num_variables(self):
+        return self.event_shape[0]
+
+    @property
+    def variable_shapes(self):
+        return [1] * self.num_variables
+
+    def _marginalise_single(self, index):
+        mvn = self.to_standard()
+        return mvn.marginalise(index)
+
+    def _marginalise_multi(self, indices):
+        mvn = self.to_standard()
+        marg_mvn = mvn.marginalise(indices)
+        return NaturalMultivariateNormal.from_standard(marg_mvn)
+
+    def _condition(self, y_dims, x_dims, x):
+        mvn = self.to_standard()
+        cond_mvn = mvn._condition(y_dims, x_dims, x)
+        return NaturalMultivariateNormal.from_standard(cond_mvn)
 
 
 def eval_grid(xx, yy, fcn):

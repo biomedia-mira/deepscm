@@ -82,6 +82,14 @@ class TestMultivariateNormal(BaseTests.TestMultivariate):
         return MultivariateNormal(torch.zeros(self.total_ndims), torch.eye(self.total_ndims))
 
 
+class TestNaturalMultivariateNormal(BaseTests.TestMultivariate):
+    total_ndims = 5
+
+    def _get_distribution(self):
+        mvn = MultivariateNormal(torch.zeros(self.total_ndims), torch.eye(self.total_ndims))
+        return NaturalMultivariateNormal.from_standard(mvn)
+
+
 class TestMultivariateMixture(BaseTests.TestMultivariate):
     total_ndims = 5
     num_components = 7
