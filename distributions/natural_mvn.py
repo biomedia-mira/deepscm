@@ -50,20 +50,13 @@ class NaturalMultivariateNormal(td.ExponentialFamily):
     def _mean_carrier_measure(self):
         return 0.
 
-    def _broadcast_params(self, sample_shape: torch.Size) -> (torch.Tensor, torch.Tensor):
-        nat_param1_ = self.nat_param1.expand(sample_shape)
-        nat_param2_ = self.nat_param2.expand(sample_shape + self.event_shape)
-        return nat_param1_, nat_param2_
-
     def log_prob(self, value: torch.Tensor) -> torch.Tensor:
         if self._validate_args:
             self._validate_sample(value)
-        nat_param1_, nat_param2_ = self._broadcast_params(value.shape)
-        prod1 = torch.einsum('...d,...d->...', nat_param1_, value)
-        prod2 = torch.einsum('...d,...de,...e->...', value, nat_param2_, value)
+        prod1 = (value * self.nat_param1).sum(-1)
+        prod2 = (value * matvec(self.nat_param2, value)).sum(-1)
         return prod1 + prod2 - self.log_normalizer
 
-    @lazy_property
     def entropy(self) -> torch.Tensor:
         logdet = triangular_logdet(self.scale_tril)
         return .5 * self.event_shape[0] * (1. + _LOG_2PI) + logdet
