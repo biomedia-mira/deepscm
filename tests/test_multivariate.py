@@ -32,6 +32,25 @@ class BaseTests:
             self.assertEqual(len(var_shapes), self.dist.num_variables)
             self.assertEqual(sum(var_shapes), self.dist.event_shape[0])
 
+        def test_invalid_indices(self):
+            dummy_values = self.values[:, 0]
+            valid_index = 0
+            valid_values = self.values[:, valid_index]
+            for invalid_index in [-self.dist.num_variables - 1,
+                                  -1,
+                                  self.dist.num_variables,
+                                  self.dist.num_variables + 1]:
+                with self.assertRaises(ValueError):
+                    self.dist.marginalise(invalid_index)
+                with self.assertRaises(ValueError):
+                    self.dist.marginalise([invalid_index, valid_index])
+
+                with self.assertRaises(ValueError):
+                    self.dist.condition({invalid_index: dummy_values})
+                with self.assertRaises(ValueError):
+                    self.dist.condition({invalid_index: dummy_values,
+                                         valid_index: valid_values})
+
         def test_marginalise_single(self):
             var_shapes = self.dist.variable_shapes
             var_index = 0
@@ -111,6 +130,28 @@ class TestMultivariateMixture(BaseTests.TestMultivariate):
 
     def test_num_variables(self):
         self.assertEqual(self.dist.num_variables, self.total_ndims)
+
+
+class TestCorrectness(unittest.TestCase):
+    num_factors = 5
+    var_shapes = [i + 10 for i in range(num_factors)]
+    total_ndims = sum(var_shapes)
+
+    def setUp(self):
+        self.dist = Factorised([td.MultivariateNormal(torch.zeros(d), torch.eye(d))
+                                for d in self.var_shapes])
+
+    def test_marginalise_single(self):
+        for index, dim in enumerate(self.var_shapes):
+            marg = self.dist.marginalise(index)
+            self.assertEqual(marg.event_shape, (dim,))
+
+    def test_marginalise_multi(self):
+        for index1, dim1 in enumerate(self.var_shapes):
+            for index2, dim2 in enumerate(self.var_shapes):
+                marg = self.dist.marginalise([index1, index2])
+                self.assertEqual(tuple(marg.variable_shapes), (dim1, dim2))
+                self.assertEqual(marg.event_shape, (dim1 + dim2,))
 
 
 if __name__ == '__main__':
