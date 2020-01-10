@@ -59,7 +59,7 @@ class MultivariateDistribution(Distribution):
         return self.marginalise(0)
 
 
-class NamedMultivariateDistribution(Distribution):
+class NamedMultivariateDistribution:
     def __init__(self, base_dist: MultivariateDistribution, var_names: Sequence[str]):
         if len(var_names) != base_dist.num_variables:
             raise ValueError(f"Number of names ({len(var_names)}) must match "
@@ -76,16 +76,36 @@ class NamedMultivariateDistribution(Distribution):
         return [self.var_indices[name] for name in names]
     
     def marginalise(self, which):
+        if _is_single(which):
+            return self.base_dist.marginalise(self.var_indices[which])
         which_indices = self._map_indices(which)
         marg_dist = self.base_dist.marginalise(which_indices)
         marg_names = which
-        return NamedMultiDistribution(marg_dist, marg_names)
+        return NamedMultivariateDistribution(marg_dist, marg_names)
     
-    def condition(self, **given):
+    def condition(self, given, squeeze=True):
         given_indices = {self.var_indices[name]: value for name, value in given.items()}
         cond_dist = self.base_dist.condition(given_indices)
-        cond_names = [name for name in var_names if name not in given]
-        return NamedMultiDistribution(cond_dist, cond_names)
+        cond_names = [name for name in self.var_names if name not in given]
+        if squeeze:
+            if len(cond_names) > 1:
+                raise RuntimeError(f"Only univariate distributions can be squeezed "
+                                   f"(num_variables={len(cond_names)})")
+            return cond_dist
+        return NamedMultivariateDistribution(cond_dist, cond_names)
+
+    def __call__(self, *marg_names, squeeze=True, **cond_dict):
+        if len(cond_dict) == 0:
+            if squeeze and len(marg_names) > 1:
+                raise RuntimeError(f"Only univariate distributions can be squeezed "
+                                   f"(num_variables={len(marg_names)})")
+            return self.marginalise(marg_names)
+        elif len(marg_names) == 0:
+            return self.condition(cond_dict, squeeze)
+        else:
+            joined_names = list(marg_names) + list(cond_dict.keys())
+            partial_dist = self.marginalise(joined_names)
+            return partial_dist.condition(cond_dict, squeeze)
 
 
 if __name__ == '__main__':
@@ -93,5 +113,5 @@ if __name__ == '__main__':
 
     factor_dist = Factorised([dist1, dist2])
     named = NamedMultivariateDistribution(factor_dist, ['x', 'y'])
-    named.condition(z=values1)
+    named('image', 'bmi', age=values1)
     
