@@ -107,6 +107,9 @@ class NamedMultivariateDistribution:
             partial_dist = self.marginalise(joined_names)
             return partial_dist.condition(cond_dict, squeeze)
 
+    def __repr__(self):
+        return self.__class__.__name__ + f"({self.base_dist}, {self.var_names})"
+
 
 if __name__ == '__main__':
     from torch.distributions import Foo

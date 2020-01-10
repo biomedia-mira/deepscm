@@ -92,6 +92,9 @@ class Factorised(MultivariateDistribution):
     def variance(self):
         return sum(factor.variance for factor in self.factors)
 
+    def __repr__(self):
+        return self.__class__.__name__ + f"({self.factors})"
+
 
 @register_kl(Factorised, Factorised)
 def _kl_factorised_factorised(p: Factorised, q: Factorised):
