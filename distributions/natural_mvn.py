@@ -124,9 +124,11 @@ class NaturalMultivariateNormal(td.ExponentialFamily, MultivariateDistribution):
         marg_mvn = mvn.marginalise(indices)
         return NaturalMultivariateNormal.from_standard(marg_mvn)
 
-    def _condition(self, y_dims, x_dims, x):
+    def _condition(self, y_dims, x_dims, x, squeeze):
         mvn = self.to_standard()
-        cond_mvn = mvn._condition(y_dims, x_dims, x)
+        cond_mvn = mvn._condition(y_dims, x_dims, x, squeeze)
+        if squeeze:
+            return cond_mvn
         return NaturalMultivariateNormal.from_standard(cond_mvn)
 
 

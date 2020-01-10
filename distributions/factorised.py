@@ -69,12 +69,8 @@ class Factorised(MultivariateDistribution):
         return Factorised([self.factors[i] for i in factor_indices],
                           validate_args=self._validate_args)
 
-    def _marginalise(self, factor_indices: Sequence[int]) -> 'Factorised':
-        return Factorised([self.factors[i] for i in factor_indices],
-                          validate_args=self._validate_args)
-
-    def _condition(self, marg_indices, cond_indices, cond_values):
-        cond_dist = self.marginalise(marg_indices)
+    def _condition(self, marg_indices, cond_indices, cond_values, squeeze):
+        cond_dist = self.marginalise(marg_indices[0] if squeeze else marg_indices)
         cond_batch_shape = torch.Size([cond_values[0].shape[0]])
         return cond_dist.expand(cond_batch_shape)
 

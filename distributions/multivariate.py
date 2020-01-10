@@ -37,16 +37,20 @@ class MultivariateDistribution(Distribution):
                 self._check_index(index)
             return self._marginalise_multi(which)
 
-    def _condition(self, marg_indices, cond_indices, cond_values) -> 'MultivariateDistribution':
+    def _condition(self, marg_indices, cond_indices, cond_values, squeeze) \
+            -> Union[Distribution, 'MultivariateDistribution']:
         raise NotImplementedError
 
-    def condition(self, cond_index_value_dict) -> 'MultivariateDistribution':
+    def condition(self, cond_index_value_dict, squeeze=False) -> 'MultivariateDistribution':
         for index in cond_index_value_dict:
             self._check_index(index)
         marg_indices = [i for i in range(self.num_variables) if i not in cond_index_value_dict]
+        if squeeze and len(marg_indices) > 1:
+            raise RuntimeError(f"Only univariate distributions can be squeezed "
+                               f"(num_variables={len(marg_indices)})")
         cond_indices = list(cond_index_value_dict.keys())
         cond_values = list(cond_index_value_dict.values())
-        return self._condition(marg_indices, cond_indices, cond_values)
+        return self._condition(marg_indices, cond_indices, cond_values, squeeze)
 
     def squeeze(self) -> Distribution:
         if self.num_variables != 1:

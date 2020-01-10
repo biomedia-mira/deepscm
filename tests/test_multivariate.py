@@ -90,6 +90,33 @@ class BaseTests:
                 self.assertEqual(cond.batch_shape, expected_batch_shape)
                 self.assertEqual(cond.event_shape, expected_event_shape)
 
+        def test_condition_squeeze(self):
+            # Test typical squeeze case
+            num_variables = self.dist.num_variables
+            dims = list(range(num_variables - 1))
+            cond_dict = {dim: self.values[:, dim].unsqueeze(-1) for dim in dims}
+            cond = self.dist.condition(cond_dict, squeeze=False)
+            self.assertEqual(cond.num_variables, 1)
+
+            # Test consistency with conditional+squeeze and with single marginal
+            marg_indices = [i for i in range(num_variables) if i not in cond_dict]
+            assert len(marg_indices) == 1
+            marg_index = marg_indices[0]
+            cond_squeeze = self.dist.condition(cond_dict, squeeze=True)
+            squeezed = cond.squeeze()
+            marginal = self.dist.marginalise(marg_index)
+            self.assertEqual(type(cond_squeeze), type(squeezed))
+            self.assertEqual(type(cond_squeeze), type(marginal))
+            self.assertEqual(cond_squeeze.batch_shape, squeezed.batch_shape)
+            self.assertEqual(cond_squeeze.event_shape, squeezed.event_shape)
+            self.assertEqual(cond_squeeze.event_shape, marginal.event_shape)
+
+            # Test 'unsqueezable' conditioning
+            dim = 0
+            cond_dict = {dim: self.values[:, dim]}
+            with self.assertRaises(RuntimeError):
+                self.dist.condition(cond_dict, squeeze=True)
+
 
 class TestFactorised(BaseTests.TestMultivariate):
     num_factors = 5

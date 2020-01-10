@@ -25,7 +25,7 @@ class MultivariateNormal(td.MultivariateNormal, MultivariateDistribution):
         Sxx = self.covariance_matrix[..., indices.unsqueeze(-1), indices.unsqueeze(-2)]  # (..., Dx, Dx)
         return MultivariateNormal(mx, covariance_matrix=Sxx)
 
-    def _condition(self, y_dims, x_dims, x):
+    def _condition(self, y_dims, x_dims, x, squeeze):
         """Conditional distribution of Y|X"""
         x_dims = torch.as_tensor(x_dims)#.unsqueeze(0)
         y_dims = torch.as_tensor(y_dims)#.unsqueeze(0)
@@ -45,8 +45,8 @@ class MultivariateNormal(td.MultivariateNormal, MultivariateDistribution):
         #     Syx_iSxx = Syx / Sxx  # (..., Dy, Dx)
         Syy_x = Syy - Syx_iSxx @ Sxy  # (..., Dy, Dy)
         my_x = my + matvec(Syx_iSxx, x - mx)  # (..., Dy)
-        # if y_dims.numel() == 1:
-        #     return td.Normal(my_x.squeeze(-1), torch.sqrt(Syy_x).reshape(Syy_x.shape[:-2]))
+        if squeeze:
+            return td.Normal(my_x.squeeze(-1), torch.sqrt(Syy_x).reshape(Syy_x.shape[:-2]))
         return MultivariateNormal(my_x, covariance_matrix=Syy_x)
 
 

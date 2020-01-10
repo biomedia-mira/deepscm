@@ -74,14 +74,14 @@ class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistrib
         marg_components = self.components.marginalise(which_indices)
         return MultivariateMixture(self.mixing, marg_components)
 
-    def _condition(self, marg_indices, cond_indices, cond_values):
+    def _condition(self, marg_indices, cond_indices, cond_values, squeeze):
         cond_values = [self._broadcast(value) for value in cond_values]
         marg_components = self.components.marginalise(cond_indices)
         marg_values = torch.cat(cond_values, -1)
         cond_logits = self.mixing.logits + marg_components.log_prob(marg_values)
         cond_mixing = td.Categorical(logits=cond_logits)
         cond_dict = dict(zip(cond_indices, cond_values))
-        cond_components = self.components.condition(cond_dict)
+        cond_components = self.components.condition(cond_dict, squeeze)
         return MultivariateMixture(cond_mixing, cond_components)
 
 
