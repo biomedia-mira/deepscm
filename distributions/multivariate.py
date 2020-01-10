@@ -42,6 +42,8 @@ class MultivariateDistribution(Distribution):
         raise NotImplementedError
 
     def condition(self, cond_index_value_dict, squeeze=False) -> 'MultivariateDistribution':
+        if len(cond_index_value_dict) == 0:
+            return self
         for index in cond_index_value_dict:
             self._check_index(index)
         marg_indices = [i for i in range(self.num_variables) if i not in cond_index_value_dict]
