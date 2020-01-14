@@ -22,18 +22,19 @@ class _NegativeDefinite(constraints.Constraint):
         return value.symeig(eigenvectors=False)[0][..., -1] < 0.0
 
 
-class NaturalMultivariateNormal(td.ExponentialFamily, MultivariateDistribution):
+class NaturalMultivariateNormal(MultivariateDistribution, td.ExponentialFamily):
     arg_constraints = {'nat_param1': constraints.real_vector,
                        'nat_param2': _NegativeDefinite()}
     support = constraints.real
     has_rsample = True
 
-    def __init__(self, nat_param1: torch.Tensor, nat_param2: torch.Tensor, validate_args=None):
+    def __init__(self, nat_param1: torch.Tensor, nat_param2: torch.Tensor, validate_args=None,
+                 var_names=None):
         batch_shape = torch.Size(nat_param1.shape[:-1])
         event_shape = torch.Size((nat_param1.shape[-1],))
         self.nat_param1 = nat_param1
         self.nat_param2 = nat_param2
-        super().__init__(batch_shape, event_shape, validate_args=validate_args)
+        super().__init__(batch_shape, event_shape, validate_args=validate_args, var_names=var_names)
 
     @property
     def _natural_params(self):

@@ -12,6 +12,12 @@ T = TypeVar('T', bound=td.Distribution)
 
 
 class Mixture(td.Distribution, Generic[T]):
+    def __new__(cls, proportions, components, *args, **kwargs):
+        # Automatically construct a MultivariateMixture for multivariate components
+        if isinstance(components, MultivariateDistribution):
+            return super().__new__(MultivariateMixture, proportions, components, *args, **kwargs)
+        return super().__new__(Mixture, proportions, components, *args, **kwargs)
+
     def __init__(self, proportions: Union[td.Categorical, torch.Tensor], components: T):
         if isinstance(proportions, torch.Tensor):
             proportions = td.Categorical(proportions)
@@ -59,9 +65,12 @@ class Mixture(td.Distribution, Generic[T]):
         post_logits = self.mixing.logits + post_lognorm
         post_mixing = td.Categorical(logits=post_logits)
         return Mixture(post_mixing, post_components)
-    
 
-class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistribution):
+
+class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribution]):
+    def __init__(self, proportions, components: MultivariateDistribution):
+        super().__init__(proportions, components, var_names=components.variable_names)
+
     @property
     def num_variables(self):
         return self.components.num_variables
@@ -70,9 +79,9 @@ class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistrib
     def variable_shapes(self):
         return self.components.variable_shapes
     
-    def marginalise(self, which_indices):
-        marg_components = self.components.marginalise(which_indices)
-        return MultivariateMixture(self.mixing, marg_components)
+    def marginalise(self, which):
+        marg_components = self.components.marginalise(which)
+        return Mixture(self.mixing, marg_components)
 
     def _condition(self, marg_indices, cond_indices, cond_values, squeeze):
         cond_values = [self._broadcast(value) for value in cond_values]
@@ -82,7 +91,7 @@ class MultivariateMixture(Mixture[MultivariateDistribution], MultivariateDistrib
         cond_mixing = td.Categorical(logits=cond_logits)
         cond_dict = dict(zip(cond_indices, cond_values))
         cond_components = self.components.condition(cond_dict, squeeze)
-        return MultivariateMixture(cond_mixing, cond_components)
+        return Mixture(cond_mixing, cond_components)
 
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):

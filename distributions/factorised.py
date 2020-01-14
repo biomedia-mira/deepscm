@@ -26,20 +26,21 @@ class _FactorisedSupport(Constraint):
 class Factorised(MultivariateDistribution):
     arg_constraints = {}
 
-    def __init__(self, factors: Sequence[Distribution], validate_args=None):
+    def __init__(self, factors: Sequence[Distribution], validate_args=None, var_names=None):
         self.factors = factors
         batch_shape = factors[0].batch_shape
         event_shape = torch.Size([sum(factor.event_shape[0] for factor in self.factors)])
         self._ndims = [factor.event_shape[0] if len(factor.event_shape) > 0 else 1
                        for factor in self.factors]
-        super().__init__(batch_shape, event_shape, validate_args)
+        super().__init__(batch_shape, event_shape, validate_args, var_names=var_names)
 
     def expand(self, batch_shape, _instance=None):
         new = self._get_checked_instance(Factorised, _instance)
         batch_shape = torch.Size(batch_shape)
         new.factors = [factor.expand(batch_shape) for factor in self.factors]
         new._ndims = self._ndims
-        super(Factorised, new).__init__(batch_shape, self.event_shape, validate_args=False)
+        super(Factorised, new).__init__(batch_shape, self.event_shape, validate_args=False,
+                                        var_names=self.variable_names)
         new._validate_args = self._validate_args
         return new
 

@@ -5,7 +5,7 @@ from .multivariate import MultivariateDistribution
 from util import matvec, posdef_inverse
 
 
-class MultivariateNormal(td.MultivariateNormal, MultivariateDistribution):
+class MultivariateNormal(MultivariateDistribution, td.MultivariateNormal):
     @property
     def num_variables(self):
         return self.event_shape[0]
@@ -54,7 +54,7 @@ if __name__ == '__main__':
     D = 5
     mean = torch.zeros(D)
     cov = torch.eye(D)
-    mvn = MultivariateNormal(mean, cov)
+    mvn = MultivariateNormal(mean, cov, var_names='abcdefghij'[:D])
     values = torch.zeros(7, D)
     # print(mvn.marginalise(0))
     # print(mvn.marginalise([0]).batch_shape)
@@ -67,7 +67,8 @@ if __name__ == '__main__':
 
     for x_dims in [(0,), [0], [0, 3]]:
         for y_dims in [(1,), [1], [1, 2]]:
-            result = mvn._condition(y_dims, x_dims, values[:, x_dims])
+            result = mvn._condition(y_dims, x_dims, [values[:, x_dims]], squeeze=False)
             print(result)
+            assert result.variable_names == mvn.variable_names
             assert result.batch_shape == values.shape[:-1]
             assert result.event_shape == (len(y_dims),)
