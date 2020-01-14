@@ -5,6 +5,7 @@ from torch import Tensor
 from torch.distributions import Distribution, Categorical, MultivariateNormal
 
 from distributions.factorised import Factorised
+from distributions.multivariate import MultivariateDistribution
 from distributions.natural_mvn import NaturalMultivariateNormal
 from util import posdef_solve
 
@@ -63,17 +64,38 @@ def product(p: Distribution, q: Distribution, expand=True) -> Tuple[Distribution
     """
     if p.event_shape != q.event_shape:
         raise ValueError("Cannot compute the product of distributions with different event shapes")
-    type_p, type_q = type(p), type(q)
+    if isinstance(p, MultivariateDistribution) and isinstance(q, MultivariateDistribution):
+        if p.num_variables != q.num_variables:
+            raise ValueError(f"Cannot compute the product of multivariate distributions with "
+                             f"different numbers of variables: "
+                             f"{p.num_variables} vs. {q.num_variables}")
+        for pn, qn in zip(p.variable_names, q.variable_names):
+            if pn != qn:
+                raise ValueError(f"Cannot compute the product of multivariate distributions with "
+                                 f"different variable names: "
+                                 f"{p.variable_names} vs. {q.variable_names}")
+
+    p_type, q_type = type(p), type(q)
     p_shape, q_shape = _broadcast_shapes(p.batch_shape, q.batch_shape, expand)
     try:
-        prod_fcn = _PROD_REGISTRY[type_p, type_q]
-        return prod_fcn(p, q, p_shape, q_shape)
+        prod_fcn = _PROD_REGISTRY[p_type, q_type]
+        pq, pq_logprob = prod_fcn(p, q, p_shape, q_shape)
     except KeyError:
         try:
-            prod_fcn = _PROD_REGISTRY[type_q, type_p]
-            return prod_fcn(q, p, q_shape, p_shape)
+            prod_fcn = _PROD_REGISTRY[q_type, p_type]
+            pq, pq_logprob = prod_fcn(q, p, q_shape, p_shape)
         except KeyError:
-            raise NotImplementedError(f"No product implemented for {type_p} vs. {type_q}")
+            raise NotImplementedError(f"No product implemented for {p_type} vs. {q_type}")
+
+    if isinstance(pq, MultivariateDistribution):
+        var_names = None
+        if isinstance(p, MultivariateDistribution):
+            var_names = p.variable_names
+        elif isinstance(q, MultivariateDistribution):
+            var_names = q.variable_names
+        pq.rename(var_names)
+
+    return pq, pq_logprob
 
 
 def _broadcast_shapes(p_shape, q_shape, expand):
