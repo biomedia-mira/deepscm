@@ -97,6 +97,9 @@ class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribu
         cond_components = self.components.condition(cond_dict, squeeze)
         return Mixture(cond_mixing, cond_components)
 
+    def __repr__(self):
+        return self.__class__.__name__ + f"(mixing: {self.mixing}, components: {self.components})"
+
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
     def posterior(self, potentials: td.MultivariateNormal) -> 'MultivariateNormalMixture':

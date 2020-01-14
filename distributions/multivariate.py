@@ -100,6 +100,9 @@ class MultivariateDistribution(Distribution):
             partial_dist = self.marginalise(joined_keys)
             return partial_dist.condition(cond_dict, squeeze)
 
+    def __repr__(self):
+        return super().__repr__()[:-1] + f", variable_names: {self.variable_names})"
+
 
 if __name__ == '__main__':
     from torch.distributions import Foo
