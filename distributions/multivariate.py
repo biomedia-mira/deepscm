@@ -10,10 +10,10 @@ def _is_single(idx):
 
 class MultivariateDistribution(Distribution):
     def __init__(self, *args, var_names=None, **kwargs):
+        super().__init__(*args, **kwargs)  # Necessary to allow multiple inheritance
         self.variable_names = None
         self._var_indices = None
         self.rename(var_names)
-        super().__init__(*args, **kwargs)  # Necessary to allow multiple inheritance
 
     @property
     def num_variables(self) -> int:
@@ -27,9 +27,11 @@ class MultivariateDistribution(Distribution):
         if new_var_names is not None and len(new_var_names) != self.num_variables:
             raise ValueError(f"Number of names ({len(new_var_names)}) must match "
                              f"number of variables ({self.num_variables})")
-        self.variable_names = list(new_var_names)
-        self._var_indices = {name: i for i, name in enumerate(new_var_names)} \
-            if new_var_names else None
+        if new_var_names is None:
+            self.variable_names = self._var_indices = None
+        else:
+            self.variable_names = list(new_var_names)
+            self._var_indices = {name: i for i, name in enumerate(new_var_names)}
 
     def _check_index(self, index):
         if index < 0 or index >= self.num_variables:

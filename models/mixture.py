@@ -78,6 +78,10 @@ class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribu
     @property
     def variable_shapes(self):
         return self.components.variable_shapes
+
+    def rename(self, new_var_names):
+        super().rename(new_var_names)
+        self.components.rename(new_var_names)
     
     def marginalise(self, which):
         marg_components = self.components.marginalise(which)
@@ -154,9 +158,12 @@ if __name__ == '__main__':
     # mixture = MultivariateNormalMixture(mixing, components)
     # mixture = NaturalMultivariateNormalMixture(mixing, NaturalMultivariateNormal.from_standard(components))
     mixture = Mixture(mixing, NaturalMultivariateNormal.from_standard(components))
+    mixture.rename(['x', 'y'])
+    print("mixture names", mixture.variable_names)
     print("mixture", mixture.batch_shape, mixture.event_shape)
     probe = td.MultivariateNormal(mean[:3]+1*torch.tensor([1., -1.]), .2 * var[:3])
     post_mixture = mixture.posterior(probe)
+    print("post_mixture names", post_mixture.variable_names)
     samples = mixture.sample([N])
     n = 1
     post_samples = post_mixture.sample([N])[:, n]
