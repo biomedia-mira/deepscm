@@ -66,6 +66,9 @@ class Mixture(td.Distribution, Generic[T]):
         post_mixing = td.Categorical(logits=post_logits)
         return Mixture(post_mixing, post_components)
 
+    def __repr__(self):
+        return self.__class__.__name__ + f"(mixing: {self.mixing}, components: {self.components})"
+
 
 class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribution]):
     def __init__(self, proportions, components: MultivariateDistribution):
@@ -96,9 +99,6 @@ class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribu
         cond_dict = dict(zip(cond_indices, cond_values))
         cond_components = self.components.condition(cond_dict, squeeze)
         return Mixture(cond_mixing, cond_components)
-
-    def __repr__(self):
-        return self.__class__.__name__ + f"(mixing: {self.mixing}, components: {self.components})"
 
 
 class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
