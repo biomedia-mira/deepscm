@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Mapping, Sequence, Union
 
 import torch
 from torch.distributions import Distribution, register_kl, kl_divergence
@@ -26,7 +26,13 @@ class _FactorisedSupport(Constraint):
 class Factorised(MultivariateDistribution):
     arg_constraints = {}
 
-    def __init__(self, factors: Sequence[Distribution], validate_args=None, var_names=None):
+    def __init__(self, factors: Union[Sequence[Distribution], Mapping[str, Distribution]],
+                 validate_args=None, var_names=None):
+        if isinstance(factors, Mapping):
+            if var_names is not None:
+                raise ValueError("var_names should not be given alongside a factor dictionary")
+            var_names = list(factors.keys())
+            factors = list(factors.values())
         self.factors = factors
         batch_shape = factors[0].batch_shape
         event_shape = torch.Size([sum(factor.event_shape[0] for factor in self.factors)])
