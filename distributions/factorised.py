@@ -78,7 +78,7 @@ class Factorised(MultivariateDistribution):
 
     def _condition(self, marg_indices, cond_indices, cond_values, squeeze):
         cond_dist = self.marginalise(marg_indices[0] if squeeze else marg_indices)
-        cond_batch_shape = torch.Size([cond_values[0].shape[0]])
+        cond_batch_shape = torch.Size([cond_values[0].shape[0]]) + cond_dist.batch_shape
         return cond_dist.expand(cond_batch_shape)
 
     def log_prob(self, value):
