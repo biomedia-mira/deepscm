@@ -118,7 +118,7 @@ def _kl_factorised_factorised(p: Factorised, q: Factorised):
 
 if __name__ == '__main__':
     import torch.distributions as td
-    from models.mixture import Mixture
+    from distributions.mixture import Mixture
 
     B, D1, D2 = 5, 3, 4
     N = 1000

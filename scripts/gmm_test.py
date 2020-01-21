@@ -1,9 +1,8 @@
 import torch
 import torch.distributions as td
 from torch import nn
-from torch.nn import functional as F
 
-from models.mixture import MultivariateNormalMixture, NaturalMultivariateNormalMixture
+from distributions.mixture import Mixture, NaturalMultivariateNormalMixture
 from distributions.natural_mvn import NaturalMultivariateNormal
 
 
@@ -14,16 +13,15 @@ class LearnableGMM(nn.Module):
         self.means = nn.Parameter(torch.randn(n_components, n_dimensions))
         self.scales = nn.Parameter(torch.randn(n_components, n_dimensions, n_dimensions))
 
-        self.distribution = self._get_distribution()
-
-    def _get_distribution(self):
+    @property
+    def distribution(self):
         covariances = self.scales @ self.scales.transpose(1, 2)
         mixing = td.Categorical(logits=self.logits)
         components = td.MultivariateNormal(self.means, covariances)
-        return MultivariateNormalMixture(mixing, components)
+        return Mixture(mixing, components)
 
     def forward(self, data):
-        return self._get_distribution().log_prob(data)
+        return self.distribution.log_prob(data)
 
 
 class LearnableNGMM(nn.Module):
@@ -36,9 +34,8 @@ class LearnableNGMM(nn.Module):
         # self._eye = torch.eye(n_dimensions).unsqueeze(0).expand(n_components, -1, -1)
         self.register_buffer('_eye', torch.eye(n_dimensions).unsqueeze(0).expand(n_components, -1, -1))
 
-        self.distribution = self._get_distribution()
-
-    def _get_distribution(self):
+    @property
+    def distribution(self):
         mixing = td.Categorical(logits=self.logits)
         # diag = F.softplus(self.diag_coeff)[:, None, None] * self._eye
         diag = 1e-6 * self._eye
@@ -46,10 +43,10 @@ class LearnableNGMM(nn.Module):
         # idx = torch.arange(precisions.shape[-1], device=precisions.device)
         # precisions[:, idx, idx] += self.diag_coeff.exp()[:, None]
         components = NaturalMultivariateNormal(self.locs, -precisions)
-        return NaturalMultivariateNormalMixture(mixing, components)
+        return Mixture(mixing, components)
 
     def forward(self, data):
-        return self._get_distribution().log_prob(data)
+        return self.distribution.log_prob(data)
 
 
 def eval_grid(xx, yy, fcn):

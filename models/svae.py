@@ -1,12 +1,12 @@
 import torch
 
 from . import natural_gmm, vae
-from .mixture import NaturalMultivariateNormalMixture
+from distributions.mixture import Mixture
 
 # TODO: Implement something like a TensorBundle that forwards operations to all elements?
 
 
-def inference(data: torch.Tensor, var_mixture: NaturalMultivariateNormalMixture,
+def inference(data: torch.Tensor, var_mixture: Mixture,
               encoder: vae.Encoder, decoder: vae.Decoder, n_samples=10):
     potentials = encoder.posterior(data)
     posteriors = var_mixture.posterior(potentials)

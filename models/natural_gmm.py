@@ -1,11 +1,10 @@
 import torch
 import torch.distributions as td
 from torch import nn
-from torch.nn import functional as F
 
+from distributions.mixture import NaturalMultivariateNormalMixture
 from distributions.natural_nw import NaturalNormalWishart
 from distributions.natural_mvn import NaturalMultivariateNormal
-from models.mixture import NaturalMultivariateNormalMixture
 
 
 class MultivariateNGMM(nn.Module):

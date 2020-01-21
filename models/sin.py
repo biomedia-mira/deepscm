@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torchvision
 
-from .mixture import Mixture
+from distributions.mixture import Mixture
 
 
 class MixtureSIN(nn.Module):

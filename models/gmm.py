@@ -3,11 +3,10 @@
 import torch
 import torch.distributions as td
 from torch import nn
-from torch.nn import functional as F
 
+from distributions.mixture import Mixture
 from distributions.natural_nw import NaturalNormalWishart
-from models import natural_gmm, mixture
-from util import triangular_logdet, mahalanobis, outer
+from models import natural_gmm
 
 """
 Variational Mixture of Gaussians, according to:
@@ -128,7 +127,7 @@ class MultivariateGMM(nn.Module):
         mixing = td.Categorical(logits=self.logits)
         tril = self.tril(self.diag, self.tril_vec)
         components = td.MultivariateNormal(self.means, scale_tril=tril)
-        return mixture.MultivariateNormalMixture(mixing, components)
+        return Mixture(mixing, components)
 
     def forward(self, data):
         return self._get_distribution().log_prob(data)

@@ -4,10 +4,10 @@ import torch
 import torch.distributions as td
 
 from distributions.factorised import Factorised
+from distributions.mixture import MultivariateMixture
 from distributions.multivariate import MultivariateDistribution
 from distributions.mvn import MultivariateNormal
 from distributions.natural_mvn import NaturalMultivariateNormal
-from models.mixture import MultivariateMixture
 
 
 class BaseTests:

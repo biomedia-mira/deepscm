@@ -3,7 +3,7 @@ from torch import nn
 from torch.distributions import Categorical
 
 from ..distributions.factorised import Factorised
-from .mixture import Mixture
+from ..distributions.mixture import Mixture
 from .sin import MixtureSIN
 
 
