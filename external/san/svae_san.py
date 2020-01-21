@@ -1,7 +1,6 @@
 import torch
 
-from distributions import dirichlet_san, gaussian_san, niw_san
-from models import vae, gmm_san
+from . import gmm_san, niw_san, gaussian_san, dirichlet_san, vae
 
 
 def e_step(phi_enc, phi_gmm, nb_samples):
@@ -214,7 +213,7 @@ def unpack_recognition_gmm(phi_gmm):
 
     # make sure that L is a valid Cholesky decomposition and compute precision
     L_k = torch.tril(L_k_raw)
-    L_k = torch.matrix_set_diag(L_k, tf.nn.softplus(torch.diagonal(L_k)))
+    L_k = torch.matrix_set_diag(L_k, torch.nn.softplus(torch.diagonal(L_k)))
     P = torch.matmul(L_k, L_k.transpose(-1, -2))
 
     eta2 = -.5 * P
@@ -278,11 +277,9 @@ def init_mm_params(nb_components, latent_dims, alpha_scale=.1, beta_scale=1e-5, 
     alpha = dirichlet_san.standard_to_natural(alpha_init)
 
     # init variable
+    params = (alpha, A, b, beta, v_hat)
     if as_variables:
-        for param in [alpha, A, b, beta, v_hat]:
-            param.to(device).requires_grad_(trainable)
-
-    params = alpha, A, b, beta, v_hat
+        params = [param.to(device).requires_grad_(trainable) for param in params]
 
     return params
 

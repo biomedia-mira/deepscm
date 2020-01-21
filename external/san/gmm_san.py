@@ -1,11 +1,9 @@
 """Adapted from: https://github.com/emtiyaz/vmp-for-svae/blob/master/models/gmm.py"""
 
-import numpy as np
 import torch
 import torch.distributions as td
 
-from distributions import dirichlet_san, niw_san
-from losses import weighted_mse, generate_missing_data_mask, imputation_mse  # , gaussian_logprob
+from . import niw_san, dirichlet_san
 
 """
 Variational Mixture of Gaussians, according to:

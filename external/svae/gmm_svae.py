@@ -2,7 +2,7 @@
 import numpy as np
 import numpy.random as npr
 
-from distributions import gaussian_san, niw_san
+from external.san import niw_san, gaussian_san
 
 
 ### inference functions for the SVAE interface
