@@ -101,13 +101,7 @@ class MultivariateDistribution(Distribution):
             return partial_dist.condition(cond_dict, squeeze)
 
     def __repr__(self):
-        return super().__repr__()[:-1] + f", variable_names: {self.variable_names})"
-
-
-if __name__ == '__main__':
-    from torch.distributions import Foo
-    from distributions.factorised import Factorised
-
-    dist1, dist2 = Factorised([]), Factorised([])
-    factor_dist = Factorised([dist1, dist2], var_names=['x', 'y'])
-    factor_dist('image', 'bmi', age=values1)
+        s = super().__repr__()[:-1]
+        if self.variable_names is not None:
+            s += f", variable_names: {self.variable_names}"
+        return s + ')'

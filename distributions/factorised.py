@@ -100,20 +100,16 @@ class Factorised(MultivariateDistribution):
         return sum(factor.variance for factor in self.factors)
 
     def __repr__(self):
-        return self.__class__.__name__ + f"({self.factors})"
+        factors = self.factors
+        if self.variable_names is not None:
+            factors = dict(zip(self.variable_names, factors))
+        return self.__class__.__name__ + f"({factors})"
 
 
 @register_kl(Factorised, Factorised)
 def _kl_factorised_factorised(p: Factorised, q: Factorised):
     return sum(kl_divergence(p_factor, q_factor)
                for p_factor, q_factor in zip(p.factors, q.factors))
-
-
-# class FactorisedMixture(Mixture[Factorised]):
-#     def posterior(self, potentials: Factorised) -> 'FactorisedMixture':
-#         post_factors = [factor for factor in self.components.factors]
-#         post_components =
-#         post_logits = self.mixing.logits
 
 
 if __name__ == '__main__':
