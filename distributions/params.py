@@ -10,6 +10,7 @@ from distributions.mvn import MultivariateNormal
 from distributions.multivariate import MultivariateDistribution
 
 T = TypeVar('T', bound=td.Distribution)
+M = TypeVar('M', bound=MultivariateDistribution)
 Size = Union[torch.Size, Sequence[int]]
 
 
@@ -48,6 +49,22 @@ class DistributionParams(Generic[T], nn.Module):
         return super().__call__(*input, **kwargs)
 
 
+class MultivariateParams(DistributionParams[M]):
+    def __init__(self, batch_shape: Size = torch.Size(), var_names=None):
+        super().__init__(batch_shape=batch_shape)
+        self.variable_names = var_names
+
+    def marginalise(self, *args, **kwargs):
+        dist = self.get_distribution()
+        marg = dist.marginalise(*args, **kwargs)
+        return self.from_distribution(marg)
+
+    def condition(self, *args, **kwargs):
+        dist = self.get_distribution()
+        cond = dist.condition(*args, **kwargs)
+        return self.from_distribution(cond)
+
+
 def _assemble_tril(log_diag: torch.Tensor, tril_vec: torch.Tensor):
     tril = torch.diag_embed(log_diag.exp())
     i, j = torch.tril_indices(*tril.shape[-2:], offset=-1)
@@ -62,40 +79,40 @@ def _disassemble_tril(tril: torch.Tensor):
     return log_diag, tril_vec
 
 
-class MultivariateNormalParams(DistributionParams[MultivariateNormal]):
+class MultivariateNormalParams(MultivariateParams[MultivariateNormal]):
     def __init__(self, n_dimensions: int, batch_shape: Size = torch.Size(), var_names=None):
-        super().__init__(batch_shape=batch_shape)
+        super().__init__(batch_shape=batch_shape, var_names=var_names)
         cov_low_tri_dim = int((n_dimensions * (n_dimensions - 1)) / 2)
 
         self.loc = nn.Parameter(torch.randn(*batch_shape, n_dimensions))
         self.log_diag = nn.Parameter(torch.randn(*batch_shape, n_dimensions))
         self.tril_vec = nn.Parameter(torch.randn(*batch_shape, cov_low_tri_dim))
-        self.var_names = var_names
 
     @property
     def scale_tril(self):
         return _assemble_tril(self.log_diag, self.tril_vec)
 
     def get_distribution(self) -> MultivariateNormal:
-        return MultivariateNormal(self.loc, scale_tril=self.scale_tril, var_names=self.var_names)
+        return MultivariateNormal(self.loc, scale_tril=self.scale_tril,
+                                  var_names=self.variable_names)
 
     @staticmethod
     def from_distribution(dist: MultivariateNormal) -> 'MultivariateNormalParams':
         new = MultivariateNormalParams.__new__(MultivariateNormalParams)
-        super(MultivariateNormalParams, new).__init__(batch_shape=dist.batch_shape)
+        super(MultivariateNormalParams, new).__init__(batch_shape=dist.batch_shape,
+                                                      var_names=dist.variable_names)
         log_diag, tril_vec = _disassemble_tril(dist.scale_tril)
         new.loc = nn.Parameter(dist.loc)
         new.log_diag = nn.Parameter(log_diag)
         new.tril_vec = nn.Parameter(tril_vec)
-        new.var_names = dist.variable_names
         return new
 
     def extra_repr(self):
         s = f"{self.loc.shape[-1]}"
         if self.batch_shape:
             s += f", batch_shape={self.batch_shape}"
-        if self.var_names is not None:
-            s += f", var_names={self.var_names}"
+        if self.variable_names is not None:
+            s += f", variable_names={self.variable_names}"
         return s
 
 
@@ -122,7 +139,7 @@ class CategoricalParams(DistributionParams[td.Categorical]):
         return s
 
 
-class FactorisedParams(DistributionParams[Factorised]):
+class FactorisedParams(MultivariateParams[Factorised]):
     def __init__(self, factors: Union[Sequence[DistributionParams],
                                       Mapping[str, DistributionParams]],
                  var_names=None):
@@ -134,7 +151,7 @@ class FactorisedParams(DistributionParams[Factorised]):
 
         batch_shapes = [factor.batch_shape for factor in factors]
         batch_shape = _broadcast_shapes(*batch_shapes)
-        super().__init__(batch_shape=batch_shape)
+        super().__init__(batch_shape=batch_shape, var_names=var_names)
 
         if var_names is not None:
             if len(factors) != len(var_names):
@@ -143,28 +160,26 @@ class FactorisedParams(DistributionParams[Factorised]):
             self.factors = nn.ModuleDict(dict(zip(var_names, factors)))
         else:
             self.factors = nn.ModuleList(factors)
-        self.var_names = var_names
 
     def get_distribution(self) -> Factorised:
         factors = self.factors.values() if isinstance(self.factors, nn.ModuleDict) else self.factors
         dist_factors = [factor.get_distribution() for factor in factors]
-        return Factorised(dist_factors, var_names=self.var_names)
+        return Factorised(dist_factors, var_names=self.variable_names)
 
 
-class MixtureParams(DistributionParams[Mixture]):
+class MixtureParams(MultivariateParams[Mixture]):
     def __init__(self, mixing: CategoricalParams, components: DistributionParams, var_names=None):
         batch_shape = _broadcast_shapes(mixing.logits.shape, components.batch_shape)
         batch_shape = batch_shape[:-1]  # Discard component dimension
-        super().__init__(batch_shape=batch_shape)
+        super().__init__(batch_shape=batch_shape, var_names=var_names)
         self.mixing = mixing
         self.components = components
-        self.var_names = var_names
 
     def get_distribution(self) -> Mixture:
         mixing = self.mixing.get_distribution()
         components = self.components.get_distribution()
-        if isinstance(components, MultivariateDistribution) and self.var_names is not None:
-            components.rename(self.var_names)
+        if isinstance(components, MultivariateDistribution) and self.variable_names is not None:
+            components.rename(self.variable_names)
         return Mixture(mixing, components)
 
 
