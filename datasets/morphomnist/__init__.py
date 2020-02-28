@@ -7,6 +7,25 @@ from torch.utils.data import Dataset
 from morphomnist import io
 
 
+def load_morphomnist_like(root_dir, train: bool = True, columns=None):
+    """
+    Args:
+        root_dir: path to data directory
+        train: whether to load the training subset (``True``, ``'train-*'`` files) or the test
+            subset (``False``, ``'t10k-*'`` files)
+        columns: list of morphometrics to load; by default (``None``) loads the image index and
+            all available metrics: area, length, thickness, slant, width, and height
+    """
+    prefix = "train" if train else "t10k"
+    images_filename = prefix + "-images-idx3-ubyte.gz"
+    labels_filename = prefix + "-labels-idx1-ubyte.gz"
+    metrics_filename = prefix + "-morpho.csv"
+    images = io.load_idx(os.path.join(root_dir, images_filename))
+    labels = io.load_idx(os.path.join(root_dir, labels_filename))
+    metrics = pd.read_csv(os.path.join(root_dir, metrics_filename), usecols=columns)
+    return images, labels, metrics
+
+
 class MorphoMNISTLike(Dataset):
     def __init__(self, root_dir, train: bool = True, columns=None):
         """
@@ -19,13 +38,9 @@ class MorphoMNISTLike(Dataset):
         """
         self.root_dir = root_dir
         self.train = train
-        prefix = "train" if train else "t10k"
-        images_filename = prefix + "-images-idx3-ubyte.gz"
-        labels_filename = prefix + "-labels-idx1-ubyte.gz"
-        metrics_filename = prefix + "-morpho.csv"
-        self.images = torch.as_tensor(io.load_idx(os.path.join(self.root_dir, images_filename)))
-        self.labels = torch.as_tensor(io.load_idx(os.path.join(self.root_dir, labels_filename)))
-        metrics_df = pd.read_csv(os.path.join(root_dir, metrics_filename), usecols=columns)
+        images, labels, metrics_df = load_morphomnist_like(root_dir, train, columns)
+        self.images = torch.as_tensor(images)
+        self.labels = torch.as_tensor(labels)
         if columns is None:
             columns = metrics_df.columns
         self.metrics = {col: torch.as_tensor(metrics_df[col]) for col in columns}
