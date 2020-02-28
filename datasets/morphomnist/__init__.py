@@ -1,5 +1,7 @@
 import os
+from typing import Tuple
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -7,7 +9,8 @@ from torch.utils.data import Dataset
 from morphomnist import io
 
 
-def load_morphomnist_like(root_dir, train: bool = True, columns=None):
+def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
+        -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     """
     Args:
         root_dir: path to data directory
@@ -15,6 +18,8 @@ def load_morphomnist_like(root_dir, train: bool = True, columns=None):
             subset (``False``, ``'t10k-*'`` files)
         columns: list of morphometrics to load; by default (``None``) loads the image index and
             all available metrics: area, length, thickness, slant, width, and height
+    Returns:
+        images, labels, metrics
     """
     prefix = "train" if train else "t10k"
     images_filename = prefix + "-images-idx3-ubyte.gz"
