@@ -39,6 +39,26 @@ def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
     return images, labels, metrics
 
 
+def save_morphomnist_like(images: np.ndarray, labels: np.ndarray, metrics: pd.DataFrame,
+                          root_dir, train: bool):
+    """
+    Args:
+        images: array of MNIST-like images
+        labels: array of class labels
+        metrics: data frame of morphometrics
+        root_dir: path to the target data directory
+        train: whether to save as the training subset (``True``, ``'train-*'`` files) or the test
+            subset (``False``, ``'t10k-*'`` files)
+    """
+    assert len(images) == len(labels)
+    assert len(images) == len(metrics)
+    images_path, labels_path, metrics_path = _get_paths(root_dir, train)
+    os.makedirs(root_dir, exist_ok=True)
+    io.save_idx(images, images_path)
+    io.save_idx(labels, labels_path)
+    metrics.to_csv(metrics_path, index_label='index')
+
+
 class MorphoMNISTLike(Dataset):
     def __init__(self, root_dir, train: bool = True, columns=None):
         """
