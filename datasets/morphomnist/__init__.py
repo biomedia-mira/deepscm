@@ -35,7 +35,7 @@ def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
     images_path, labels_path, metrics_path = _get_paths(root_dir, train)
     images = io.load_idx(images_path)
     labels = io.load_idx(labels_path)
-    metrics = pd.read_csv(metrics_path, usecols=columns)
+    metrics = pd.read_csv(metrics_path, usecols=columns, index_col='index')
     return images, labels, metrics
 
 
