@@ -9,6 +9,17 @@ from torch.utils.data import Dataset
 from morphomnist import io
 
 
+def _get_paths(root_dir, train):
+    prefix = "train" if train else "t10k"
+    images_filename = prefix + "-images-idx3-ubyte.gz"
+    labels_filename = prefix + "-labels-idx1-ubyte.gz"
+    metrics_filename = prefix + "-morpho.csv"
+    images_path = os.path.join(root_dir, images_filename)
+    labels_path = os.path.join(root_dir, labels_filename)
+    metrics_path = os.path.join(root_dir, metrics_filename)
+    return images_path, labels_path, metrics_path
+
+
 def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
         -> Tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     """
@@ -21,13 +32,10 @@ def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
     Returns:
         images, labels, metrics
     """
-    prefix = "train" if train else "t10k"
-    images_filename = prefix + "-images-idx3-ubyte.gz"
-    labels_filename = prefix + "-labels-idx1-ubyte.gz"
-    metrics_filename = prefix + "-morpho.csv"
-    images = io.load_idx(os.path.join(root_dir, images_filename))
-    labels = io.load_idx(os.path.join(root_dir, labels_filename))
-    metrics = pd.read_csv(os.path.join(root_dir, metrics_filename), usecols=columns)
+    images_path, labels_path, metrics_path = _get_paths(root_dir, train)
+    images = io.load_idx(images_path)
+    labels = io.load_idx(labels_path)
+    metrics = pd.read_csv(metrics_path, usecols=columns)
     return images, labels, metrics
 
 
