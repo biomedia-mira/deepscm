@@ -1,14 +1,14 @@
 from typing import Sequence, Union
 
 import numpy as np
-from torch.distributions import Distribution
+from pyro.distributions import TorchDistribution
 
 
 def _is_single(idx):
     return np.ndim(idx) == 0
 
 
-class MultivariateDistribution(Distribution):
+class MultivariateDistribution(TorchDistribution):
     def __init__(self, *args, var_names=None, **kwargs):
         super().__init__(*args, **kwargs)  # Necessary to allow multiple inheritance
         self.variable_names = None
@@ -44,13 +44,13 @@ class MultivariateDistribution(Distribution):
         self._check_index(index_or_name)
         return index_or_name
 
-    def _marginalise_single(self, marg_index) -> Distribution:
+    def _marginalise_single(self, marg_index) -> TorchDistribution:
         raise NotImplementedError
 
     def _marginalise_multi(self, marg_indices) -> 'MultivariateDistribution':
         raise NotImplementedError
 
-    def marginalise(self, which) -> Union[Distribution, 'MultivariateDistribution']:
+    def marginalise(self, which) -> Union[TorchDistribution, 'MultivariateDistribution']:
         if _is_single(which):
             which = self._get_checked_index(which)
             return self._marginalise_single(which)
@@ -62,10 +62,10 @@ class MultivariateDistribution(Distribution):
             return marg
 
     def _condition(self, marg_indices, cond_indices, cond_values, squeeze) \
-            -> Union[Distribution, 'MultivariateDistribution']:
+            -> Union[TorchDistribution, 'MultivariateDistribution']:
         raise NotImplementedError
 
-    def condition(self, cond_dict, squeeze=False) -> Union[Distribution, 'MultivariateDistribution']:
+    def condition(self, cond_dict, squeeze=False) -> Union[TorchDistribution, 'MultivariateDistribution']:
         if len(cond_dict) == 0:
             return self
         cond_dict = {self._get_checked_index(key): value for key, value in cond_dict.items()}
@@ -80,14 +80,14 @@ class MultivariateDistribution(Distribution):
             cond.rename([self.variable_names[i] for i in marg_indices])
         return cond
 
-    def squeeze(self) -> Distribution:
+    def squeeze(self) -> TorchDistribution:
         if self.num_variables != 1:
             raise RuntimeError(f"Only univariate distributions can be squeezed "
                                f"(num_variables={self.num_variables})")
         return self.marginalise(0)
 
     def __call__(self, *marg_keys, squeeze=True, **cond_dict) \
-            -> Union[Distribution, 'MultivariateDistribution']:
+            -> Union[TorchDistribution, 'MultivariateDistribution']:
         if len(cond_dict) == 0:
             if squeeze and len(marg_keys) > 1:
                 raise RuntimeError(f"Only univariate distributions can be squeezed "
