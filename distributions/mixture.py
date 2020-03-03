@@ -1,26 +1,26 @@
 from typing import Generic, TypeVar, Union
 
 import torch
-import torch.distributions as td
+from pyro.distributions import Categorical, MultivariateNormal, TorchDistribution
 
 from distributions.multivariate import MultivariateDistribution
 from distributions.natural_mvn import NaturalMultivariateNormal
 from distributions.products import product
 from util import posdef_solve
 
-T = TypeVar('T', bound=td.Distribution)
+T = TypeVar('T', bound=TorchDistribution)
 
 
-class Mixture(td.Distribution, Generic[T]):
+class Mixture(TorchDistribution, Generic[T]):
     def __new__(cls, proportions, components, *args, **kwargs):
         # Automatically construct a MultivariateMixture for multivariate components
         if isinstance(components, MultivariateDistribution):
             return super().__new__(MultivariateMixture, proportions, components, *args, **kwargs)
         return super().__new__(Mixture, proportions, components, *args, **kwargs)
 
-    def __init__(self, proportions: Union[td.Categorical, torch.Tensor], components: T):
+    def __init__(self, proportions: Union[Categorical, torch.Tensor], components: T):
         if isinstance(proportions, torch.Tensor):
-            proportions = td.Categorical(proportions)
+            proportions = Categorical(proportions)
         if proportions._num_events != components.batch_shape[-1]:
             raise ValueError(f"Length of proportions vector ({proportions._num_events}) "
                              f"must match number of components ({components.batch_shape[-1]}).")
@@ -63,7 +63,7 @@ class Mixture(td.Distribution, Generic[T]):
     def posterior(self, potentials: T) -> 'Mixture':
         post_components, post_lognorm = product(potentials, self.components, expand=True)
         post_logits = self.mixing.logits + post_lognorm
-        post_mixing = td.Categorical(logits=post_logits)
+        post_mixing = Categorical(logits=post_logits)
         return Mixture(post_mixing, post_components)
 
     def __repr__(self):
@@ -95,14 +95,14 @@ class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribu
         marg_components = self.components.marginalise(cond_indices)
         marg_values = torch.cat(cond_values, -1)
         cond_logits = self.mixing.logits + marg_components.log_prob(marg_values)
-        cond_mixing = td.Categorical(logits=cond_logits)
+        cond_mixing = Categorical(logits=cond_logits)
         cond_dict = dict(zip(cond_indices, cond_values))
         cond_components = self.components.condition(cond_dict, squeeze)
         return Mixture(cond_mixing, cond_components)
 
 
-class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
-    def posterior(self, potentials: td.MultivariateNormal) -> 'MultivariateNormalMixture':
+class MultivariateNormalMixture(Mixture[MultivariateNormal]):
+    def posterior(self, potentials: MultivariateNormal) -> 'MultivariateNormalMixture':
         means = potentials.mean.unsqueeze(1)  # (N, 1, D)
         precs = potentials.precision_matrix.unsqueeze(1)  # (N, 1, D, D)
         covs = potentials.covariance_matrix.unsqueeze(1)  # (N, 1, D, D)
@@ -114,18 +114,18 @@ class MultivariateNormalMixture(Mixture[td.MultivariateNormal]):
         post_precs = precs + prior_precs
         post_means = posdef_solve(precs @ means[..., None] + prior_precs @ prior_means[..., None],
                                   post_precs)[0].squeeze(-1)
-        post_components = td.MultivariateNormal(post_means, precision_matrix=post_precs)
+        post_components = MultivariateNormal(post_means, precision_matrix=post_precs)
 
-        post_lognorm = td.MultivariateNormal(prior_means, covs + prior_covs).log_prob(means)
+        post_lognorm = MultivariateNormal(prior_means, covs + prior_covs).log_prob(means)
         post_logits = self.mixing.logits + post_lognorm
 
-        return MultivariateNormalMixture(td.Categorical(logits=post_logits), post_components)
+        return MultivariateNormalMixture(Categorical(logits=post_logits), post_components)
 
 
 class NaturalMultivariateNormalMixture(Mixture[NaturalMultivariateNormal]):
-    def posterior(self, potentials: Union[NaturalMultivariateNormal, td.MultivariateNormal]) \
+    def posterior(self, potentials: Union[NaturalMultivariateNormal, MultivariateNormal]) \
             -> 'NaturalMultivariateNormalMixture':
-        if isinstance(potentials, td.MultivariateNormal):
+        if isinstance(potentials, MultivariateNormal):
             potentials = NaturalMultivariateNormal.from_standard(potentials)
 
         eta1 = potentials.nat_param1.unsqueeze(1)  # (N, 1, D)
@@ -141,7 +141,7 @@ class NaturalMultivariateNormalMixture(Mixture[NaturalMultivariateNormal]):
         post_lognorm = post_components.log_normalizer - self.components.log_normalizer
         post_logits = self.mixing.logits + post_lognorm
 
-        return NaturalMultivariateNormalMixture(td.Categorical(logits=post_logits), post_components)
+        return NaturalMultivariateNormalMixture(Categorical(logits=post_logits), post_components)
 
 
 def eval_grid(xx, yy, fcn):
@@ -150,12 +150,14 @@ def eval_grid(xx, yy, fcn):
 
 
 if __name__ == '__main__':
+    from pyro.distributions import Dirichlet
+
     N, K, D = 200, 4, 2
-    props = td.Dirichlet(5*torch.ones(K)).sample()
+    props = Dirichlet(5*torch.ones(K)).sample()
     mean = torch.arange(K).float().view(K, 1).expand(K, D)
     var = .1 * torch.eye(D).expand(K, -1, -1)
-    mixing = td.Categorical(props)
-    components = td.MultivariateNormal(mean, var)
+    mixing = Categorical(props)
+    components = MultivariateNormal(mean, var)
     print("mixing", mixing.batch_shape, mixing.event_shape)
     print("components", components.batch_shape, components.event_shape)
     # mixture = MultivariateNormalMixture(mixing, components)
@@ -164,7 +166,7 @@ if __name__ == '__main__':
     mixture.rename(['x', 'y'])
     print("mixture names", mixture.variable_names)
     print("mixture", mixture.batch_shape, mixture.event_shape)
-    probe = td.MultivariateNormal(mean[:3]+1*torch.tensor([1., -1.]), .2 * var[:3])
+    probe = MultivariateNormal(mean[:3]+1*torch.tensor([1., -1.]), .2 * var[:3])
     post_mixture = mixture.posterior(probe)
     print("post_mixture names", post_mixture.variable_names)
     samples = mixture.sample([N])
