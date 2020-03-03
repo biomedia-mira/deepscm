@@ -1,3 +1,5 @@
+import warnings
+from functools import total_ordering
 from typing import Sequence, Tuple
 
 import torch
@@ -30,15 +32,56 @@ def register_product(type_p, type_q):
         type_q (type): A subclass of :class:`~torch.distributions.Distribution`.
     """
     if not isinstance(type_p, type) and issubclass(type_p, Distribution):
-        raise TypeError(f"Expected type_p to be a Distribution subclass but got {type_p}")
+        raise TypeError(f"Expected type_p to be a Distribution subclass but got {type_p.__name__}")
     if not isinstance(type_q, type) and issubclass(type_q, Distribution):
-        raise TypeError(f"Expected type_q to be a Distribution subclass but got {type_q}")
+        raise TypeError(f"Expected type_q to be a Distribution subclass but got {type_q.__name__}")
 
     def decorator(fun):
         _PROD_REGISTRY[type_p, type_q] = fun
         return fun
 
     return decorator
+
+
+# Copied from https://github.com/pytorch/pytorch/blob/e0b90b87/torch/distributions/kl.py#L76-L92
+@total_ordering
+class _Match(object):
+    __slots__ = ['types']
+
+    def __init__(self, *types):
+        self.types = types
+
+    def __eq__(self, other):
+        return self.types == other.types
+
+    def __le__(self, other):
+        for x, y in zip(self.types, other.types):
+            if not issubclass(x, y):
+                return False
+            if x is not y:
+                break
+        return True
+
+
+# Adapted from https://github.com/pytorch/pytorch/blob/e0b90b87/torch/distributions/kl.py#L95-L112
+def _dispatch_prod(type_p, type_q):
+    """
+    Find the most specific approximate match, assuming single inheritance.
+    """
+    matches = [(super_p, super_q) for super_p, super_q in _PROD_REGISTRY
+               if issubclass(type_p, super_p) and issubclass(type_q, super_q)]
+    if not matches:
+        raise NotImplementedError(f"No product implemented for {type_p.__name__} vs. {type_q.__name__}")
+    # Check that the left- and right- lexicographic orders agree.
+    left_p, left_q = min(_Match(*m) for m in matches).types
+    right_q, right_p = min(_Match(*reversed(m)) for m in matches).types
+    left_fun = _PROD_REGISTRY[left_p, left_q]
+    right_fun = _PROD_REGISTRY[right_p, right_q]
+    if left_fun is not right_fun:
+        warnings.warn(f"Ambiguous product({type_p.__name__}, {type_q.__name__}). "
+                      f"Please register_product({left_p.__name__}, {right_q.__name__})",
+                      RuntimeWarning)
+    return left_fun
 
 
 def product(p: Distribution, q: Distribution, expand=True) -> Tuple[Distribution, Tensor]:
@@ -78,14 +121,11 @@ def product(p: Distribution, q: Distribution, expand=True) -> Tuple[Distribution
     p_type, q_type = type(p), type(q)
     p_shape, q_shape = _broadcast_shapes(p.batch_shape, q.batch_shape, expand)
     try:
-        prod_fcn = _PROD_REGISTRY[p_type, q_type]
+        prod_fcn = _dispatch_prod(p_type, q_type)
         pq, pq_logprob = prod_fcn(p, q, p_shape, q_shape)
-    except KeyError:
-        try:
-            prod_fcn = _PROD_REGISTRY[q_type, p_type]
-            pq, pq_logprob = prod_fcn(q, p, q_shape, p_shape)
-        except KeyError:
-            raise NotImplementedError(f"No product implemented for {p_type} vs. {q_type}")
+    except NotImplementedError:
+        prod_fcn = _dispatch_prod(q_type, p_type)
+        pq, pq_logprob = prod_fcn(q, p, q_shape, p_shape)
 
     if isinstance(pq, MultivariateDistribution):
         var_names = None
