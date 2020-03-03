@@ -1,7 +1,8 @@
 from typing import Mapping, Sequence, Union
 
 import torch
-from torch.distributions import Distribution, register_kl, kl_divergence
+from pyro.distributions import TorchDistribution
+from torch.distributions import register_kl
 from torch.distributions.constraints import Constraint
 
 from .multivariate import MultivariateDistribution
@@ -26,7 +27,7 @@ class _FactorisedSupport(Constraint):
 class Factorised(MultivariateDistribution):
     arg_constraints = {}
 
-    def __init__(self, factors: Union[Sequence[Distribution], Mapping[str, Distribution]],
+    def __init__(self, factors: Union[Sequence[TorchDistribution], Mapping[str, TorchDistribution]],
                  validate_args=None, var_names=None):
         if isinstance(factors, Mapping):
             if var_names is not None:
@@ -69,7 +70,7 @@ class Factorised(MultivariateDistribution):
     def variable_shapes(self):
         return [factor.event_shape[0] for factor in self.factors]
 
-    def _marginalise_single(self, factor_index: int) -> Distribution:
+    def _marginalise_single(self, factor_index: int) -> TorchDistribution:
         return self.factors[factor_index]
 
     def _marginalise_multi(self, factor_indices: Sequence[int]) -> 'Factorised':
@@ -113,14 +114,15 @@ def _kl_factorised_factorised(p: Factorised, q: Factorised):
 
 
 if __name__ == '__main__':
-    import torch.distributions as td
+    from pyro.distributions import Dirichlet, MultivariateNormal
+    from torch.distributions import kl_divergence
     from distributions.mixture import Mixture
 
     B, D1, D2 = 5, 3, 4
     N = 1000
 
-    dist1 = td.MultivariateNormal(torch.zeros(D1), torch.eye(D1)).expand((B,))
-    dist2 = td.Dirichlet(torch.ones(D2)).expand((B,))
+    dist1 = MultivariateNormal(torch.zeros(D1), torch.eye(D1)).expand((B,))
+    dist2 = Dirichlet(torch.ones(D2)).expand((B,))
     print(dist1.batch_shape, dist1.event_shape)
     print(dist2.batch_shape, dist2.event_shape)
     fact = Factorised([dist1, dist2])
@@ -135,7 +137,7 @@ if __name__ == '__main__':
     print(entropy, -logp.mean())
     print()
 
-    print(td.kl_divergence(fact, fact))
+    print(kl_divergence(fact, fact))
     mixture = Mixture(torch.ones(B), fact)
     samples = mixture.rsample((N,))
     logp = mixture.log_prob(samples)
