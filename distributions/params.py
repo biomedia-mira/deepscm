@@ -1,7 +1,7 @@
 from typing import Any, Generic, Mapping, Sequence, TypeVar, Union
 
 import torch
-import torch.distributions as td
+from pyro.distributions import Categorical, TorchDistribution
 from torch import nn
 
 from distributions.factorised import Factorised
@@ -9,7 +9,7 @@ from distributions.mixture import Mixture
 from distributions.mvn import MultivariateNormal
 from distributions.multivariate import MultivariateDistribution
 
-T = TypeVar('T', bound=td.Distribution)
+T = TypeVar('T', bound=TorchDistribution)
 M = TypeVar('M', bound=MultivariateDistribution)
 Size = Union[torch.Size, Sequence[int]]
 
@@ -116,16 +116,16 @@ class MultivariateNormalParams(MultivariateParams[MultivariateNormal]):
         return s
 
 
-class CategoricalParams(DistributionParams[td.Categorical]):
+class CategoricalParams(DistributionParams[Categorical]):
     def __init__(self, n_categories, batch_shape: Size = torch.Size()):
         super().__init__(batch_shape=torch.Size(batch_shape))
         self.logits = nn.Parameter(torch.randn(*batch_shape, n_categories))
 
-    def get_distribution(self) -> td.Categorical:
-        return td.Categorical(logits=self.logits)
+    def get_distribution(self) -> Categorical:
+        return Categorical(logits=self.logits)
 
     @staticmethod
-    def from_distribution(dist: td.Categorical):
+    def from_distribution(dist: Categorical):
         new = CategoricalParams.__new__(CategoricalParams)
         super(CategoricalParams, new).__init__(batch_shape=dist.batch_shape)
         new.logits = nn.Parameter(dist.logits)
