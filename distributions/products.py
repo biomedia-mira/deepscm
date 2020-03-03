@@ -4,6 +4,7 @@ from typing import Sequence, Tuple
 
 import torch
 from torch import Tensor
+from pyro.distributions import Categorical as PyroCategorical, MultivariateNormal as PyroMultivariateNormal
 from torch.distributions import Distribution, Categorical, MultivariateNormal
 
 from distributions.factorised import Factorised
@@ -162,7 +163,11 @@ def _prod_categorical_categorical(p: Categorical, q: Categorical, p_shape, q_sha
     q_logits, = _reshape_batch([q.logits], q.batch_shape, q_shape)
 
     pq_logits = p_logits + q_logits
-    pq = Categorical(logits=pq_logits)
+
+    if isinstance(p, PyroCategorical) or isinstance(q, PyroCategorical):
+        pq = PyroCategorical(logits=pq_logits)
+    else:
+        pq = Categorical(logits=pq_logits)
     pq_lognorm = pq_logits.logsumexp(-1) - p_logits.logsumexp(-1) - q_logits.logsumexp(-1)
 
     return pq, pq_lognorm
@@ -179,8 +184,11 @@ def _prod_mvn_mvn(p: MultivariateNormal, q: MultivariateNormal, p_shape, q_shape
     pq_mean = posdef_solve(p_prec @ p_mean[..., None] + q_prec @ q_mean[..., None],
                            pq_prec)[0].squeeze(-1)
 
-    pq = MultivariateNormal(pq_mean, precision_matrix=pq_prec)
-    pq_lognorm = MultivariateNormal(q_mean, p_cov + q_cov).log_prob(p_mean)
+    if isinstance(p, PyroMultivariateNormal) or isinstance(q, PyroMultivariateNormal):
+        pq = PyroMultivariateNormal(pq_mean, precision_matrix=pq_prec)
+    else:
+        pq = MultivariateNormal(pq_mean, precision_matrix=pq_prec)
+    pq_lognorm = PyroMultivariateNormal(q_mean, p_cov + q_cov).log_prob(p_mean)
 
     return pq, pq_lognorm
 
