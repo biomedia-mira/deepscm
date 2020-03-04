@@ -3,7 +3,8 @@ from numbers import Number
 from typing import Optional, Sequence, Union
 import torch
 from torch.utils.data import DataLoader
-from scripts import data_util, spec_util
+from scripts import spec_util
+from datasets import mnist
 from models import mv_vae, vae
 import itertools
 from scripts.train_util import TensorBoardLogger, save_checkpoint, load_checkpoint
@@ -34,8 +35,8 @@ def main(device: str,
     logger = TensorBoardLogger(os.path.join(job_dir, 'logs'))
     ckpt_dir = os.path.join(job_dir, 'checkpoints')
 
-    train_set = data_util.get_dataset(data_dirs, weights, train=True)
-    test_set = data_util.get_dataset(data_dirs, weights, train=False)
+    train_set = mnist.get_dataset(data_dirs, weights, train=True)
+    test_set = mnist.get_dataset(data_dirs, weights, train=False)
 
     dl_kwargs = dict(num_workers=1, pin_memory=True) if use_cuda else {}
     train_loader = DataLoader(train_set, batch_size=train_batch_size, shuffle=True, **dl_kwargs)

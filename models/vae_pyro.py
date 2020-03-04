@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
     from arch.mnist import Decoder, Encoder
     from distributions.deep import DeepBernoulli, DeepIndepNormal
-    from scripts import data_util
+    from datasets.mnist import MNISTLike
 
     use_cuda = True
     device = 'cuda' if use_cuda else 'cpu'
@@ -54,8 +54,8 @@ if __name__ == '__main__':
     svi = SVI(vae.model, vae.guide, Adam({'lr': 1e-3}), Trace_ELBO())
 
     data_dir = "/vol/biomedic/users/dc315/mnist/original"
-    train_set = data_util.get_dataset([data_dir], train=True)
-    test_set = data_util.get_dataset([data_dir], train=False)
+    train_set = MNISTLike(data_dir, train=True)
+    test_set = MNISTLike(data_dir, train=False)
 
     train_batch_size = 256
     test_batch_size = 32
@@ -63,17 +63,10 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_set, batch_size=train_batch_size, shuffle=True, **dl_kwargs)
     test_loader = DataLoader(test_set, batch_size=test_batch_size, shuffle=True, **dl_kwargs)
 
-    def get_traces(model, guide, *args, **kwargs):
-        guide_trace = pyro.poutine.trace(guide).get_trace(*args, **kwargs)
-        model_replay = pyro.poutine.replay(model, trace=guide_trace)
-        model_trace = pyro.poutine.trace(model_replay).get_trace(*args, **kwargs)
-        return model_trace
-
     n_epochs = 10
     for epoch in range(n_epochs):
         epoch_loss = 0.
         for x, _ in tqdm(train_loader, leave=False):
             x = x.to(device).unsqueeze(1) / 255.
             epoch_loss += svi.step(x)
-            print(get_traces(vae.model, vae.guide, x).format_shapes())
         print(f"Epoch {epoch}: {epoch_loss / len(train_loader.dataset)}")
