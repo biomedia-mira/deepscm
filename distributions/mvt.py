@@ -4,21 +4,21 @@ Multivariate t-distribution
 import math
 
 import torch
+from pyro.distributions import Chi2, TorchDistribution
 from torch._six import inf, nan
-from torch.distributions import Chi2, constraints
-from torch.distributions.distribution import Distribution
+from torch.distributions import constraints
 from torch.distributions.utils import _standard_normal, broadcast_all, lazy_property
 
 from util import triangular_logdet, matvec
 
 
-class MultivariateStudentT(Distribution):
+class MultivariateStudentT(TorchDistribution):
     r"""
     Creates a multivariate Student's t-distribution parameterized by degree of
     freedom :attr:`df`, mean :attr:`loc` and scale :attr:`scale`.
     Example::
         >>> m = MultivariateStudentT(torch.tensor([2.0]))
-        >>> m.sample()  # Multivariate Student's t-distributed with degrees of freedom=2
+        >>> m.sample()  # Multivariate Student's t-distribution with degrees of freedom=2
         tensor([ 0.1046])
     Args:
         df (float or Tensor): degrees of freedom
