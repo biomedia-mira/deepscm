@@ -1,6 +1,6 @@
 import torch
-import torch.distributions as td
 from torch import nn
+from pyro.distributions import Categorical, MultivariateNormal
 
 from distributions.mixture import Mixture, NaturalMultivariateNormalMixture
 from distributions.natural_mvn import NaturalMultivariateNormal
@@ -16,8 +16,8 @@ class LearnableGMM(nn.Module):
     @property
     def distribution(self):
         covariances = self.scales @ self.scales.transpose(1, 2)
-        mixing = td.Categorical(logits=self.logits)
-        components = td.MultivariateNormal(self.means, covariances)
+        mixing = Categorical(logits=self.logits)
+        components = MultivariateNormal(self.means, covariances)
         return Mixture(mixing, components)
 
     def forward(self, data):
@@ -36,7 +36,7 @@ class LearnableNGMM(nn.Module):
 
     @property
     def distribution(self):
-        mixing = td.Categorical(logits=self.logits)
+        mixing = Categorical(logits=self.logits)
         # diag = F.softplus(self.diag_coeff)[:, None, None] * self._eye
         diag = 1e-6 * self._eye
         precisions = self.scales @ self.scales.transpose(-1, -2) + diag
