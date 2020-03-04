@@ -11,48 +11,50 @@ class DeepConditional(nn.Module):
 
 
 class _DeepIndepNormal(DeepConditional):
-    event_ndim = NotImplemented
+    def __init__(self, backbone: nn.Module, mean_head: nn.Module, logvar_head: nn.Module):
+        super().__init__()
+        self.backbone = backbone
+        self.mean_head = mean_head
+        self.logvar_head = logvar_head
 
     def forward(self, x):
-        h = self.encoder(x)
-        mean = self.fc_mean(h)
-        logvar = self.fc_logvar(h)
+        h = self.backbone(x)
+        mean = self.mean_head(h)
+        logvar = self.logvar_head(h)
         return mean, logvar
 
     def predict(self, x) -> Independent:
         mean, logvar = self(x)
         std = (.5 * logvar).exp()
-        return Normal(mean, std).to_event(self.event_ndim)
+        event_ndim = len(mean.shape[1:])  # keep only batch dimension
+        return Normal(mean, std).to_event(event_ndim)
 
 
 class DeepIndepNormal(_DeepIndepNormal):
-    event_ndim = 1
-
-    def __init__(self, encoder: nn.Module, hidden_dim: int, out_dim: int):
-        super().__init__()
-        self.encoder = encoder
-        self.fc_mean = nn.Linear(hidden_dim, out_dim)
-        self.fc_logvar = nn.Linear(hidden_dim, out_dim)
+    def __init__(self, backbone: nn.Module, hidden_dim: int, out_dim: int):
+        super().__init__(
+            backbone=backbone,
+            mean_head=nn.Linear(hidden_dim, out_dim),
+            logvar_head=nn.Linear(hidden_dim, out_dim)
+        )
 
 
 class Conv2dIndepNormal(_DeepIndepNormal):
-    event_ndim = 3  # [channel, height, width]
-
-    def __init__(self, encoder: nn.Module, hidden_channels: int, out_channels: int = 1):
-        super().__init__()
-        self.encoder = encoder
-        self.fc_mean = nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1)
-        self.fc_logvar = nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1)
+    def __init__(self, backbone: nn.Module, hidden_channels: int, out_channels: int = 1):
+        super().__init__(
+            backbone=backbone,
+            mean_head=nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1),
+            logvar_head=nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1)
+        )
 
 
 class Conv3dIndepNormal(_DeepIndepNormal):
-    event_ndim = 4  # [channel, height, width, depth]
-
-    def __init__(self, encoder: nn.Module, hidden_channels: int, out_channels: int = 1):
-        super().__init__()
-        self.encoder = encoder
-        self.fc_mean = nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1)
-        self.fc_logvar = nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1)
+    def __init__(self, backbone: nn.Module, hidden_channels: int, out_channels: int = 1):
+        super().__init__(
+            backbone=backbone,
+            mean_head=nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1),
+            logvar_head=nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1)
+        )
 
 
 def _assemble_tril(diag: torch.Tensor, lower_vec: torch.Tensor) -> torch.Tensor:
@@ -64,19 +66,19 @@ def _assemble_tril(diag: torch.Tensor, lower_vec: torch.Tensor) -> torch.Tensor:
 
 
 class DeepMultivariateNormal(DeepConditional):
-    def __init__(self, encoder: nn.Module, hidden_dim: int, latent_dim: int):
+    def __init__(self, backbone: nn.Module, hidden_dim: int, latent_dim: int):
         super().__init__()
-        self.encoder = encoder
+        self.backbone = backbone
         cov_lower_dim = (latent_dim * (latent_dim - 1)) // 2
-        self.fc_mean = nn.Linear(hidden_dim, latent_dim)
-        self.fc_lower = nn.Linear(hidden_dim, cov_lower_dim)
-        self.fc_logdiag = nn.Linear(hidden_dim, latent_dim)
+        self.mean_head = nn.Linear(hidden_dim, latent_dim)
+        self.lower_head = nn.Linear(hidden_dim, cov_lower_dim)
+        self.logdiag_head = nn.Linear(hidden_dim, latent_dim)
 
     def forward(self, x):
-        h = self.encoder(x)
-        mean = self.fc_mean(h)
-        diag = self.fc_logdiag(h).exp()
-        lower = self.fc_lower(h)
+        h = self.backbone(x)
+        mean = self.mean_head(h)
+        diag = self.logdiag_head(h).exp()
+        lower = self.lower_head(h)
         scale_tril = _assemble_tril(diag, lower)
         return mean, scale_tril
 
@@ -99,17 +101,17 @@ class MixtureSIN(DeepConditional):
 
 
 class DeepBernoulli(DeepConditional):
-    def __init__(self, decoder: nn.Module):
+    def __init__(self, backbone: nn.Module):
         super().__init__()
-        self.decoder = decoder
+        self.backbone = backbone
 
     def forward(self, z):
-        logits = self.decoder(z)
+        logits = self.backbone(z)
         return logits
 
     def predict(self, z) -> Independent:
         logits = self(z)
-        event_ndim = len(logits.shape[1:])
+        event_ndim = len(logits.shape[1:])  # keep only batch dimension
         return Bernoulli(logits=logits).to_event(event_ndim)
 
 
