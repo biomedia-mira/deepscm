@@ -1,6 +1,7 @@
 import math
 
 import torch
+from pyro.distributions import TorchDistribution
 from torch.distributions import constraints
 from torch.distributions.exp_family import ExponentialFamily
 from torch.distributions.utils import lazy_property
@@ -18,7 +19,7 @@ def mvtrigamma(x: torch.Tensor, p:int) -> torch.Tensor:
     return torch.polygamma(1, x.unsqueeze(-1) - .5 * i).sum(-1)
 
 
-class Wishart(ExponentialFamily):
+class Wishart(TorchDistribution, ExponentialFamily):
     arg_constraints = {'scale': constraints.positive_definite}
     support = constraints.positive_definite
     has_rsample = True
