@@ -1,12 +1,12 @@
 import pyro
 import torch
 from pyro.distributions import Normal
-from torch import nn
+from pyro.nn import PyroModule, pyro_method
 
 from distributions.deep import DeepConditional
 
 
-class VAE(nn.Module):
+class VAE(PyroModule):
     def __init__(self, decoder: DeepConditional, encoder: DeepConditional,
                  hidden_dim: int, latent_dim: int):
         super().__init__()
@@ -15,8 +15,11 @@ class VAE(nn.Module):
         self.decoder = decoder
         self.encoder = encoder
 
+    @pyro_method
     def model(self, x: torch.Tensor):
         decoder = pyro.module('decoder', self.decoder)
+        # TODO: Remove dummy non-module parameter added to test serialisation
+        pyro.param('dummy_param', torch.arange(42, dtype=torch.double))
         with pyro.plate('observations', x.shape[0]):
             z_loc = x.new_zeros(self.latent_dim)
             z_scale = x.new_ones(self.latent_dim)
@@ -24,6 +27,7 @@ class VAE(nn.Module):
             x = pyro.sample('x', decoder.predict(z), obs=x)
         return x, z
 
+    @pyro_method
     def guide(self, x: torch.Tensor):
         encoder = pyro.module('encoder', self.encoder)
         with pyro.plate('observations', x.shape[0]):
