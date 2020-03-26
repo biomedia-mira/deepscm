@@ -17,21 +17,19 @@ class VAE(PyroModule):
 
     @pyro_method
     def model(self, x: torch.Tensor):
-        decoder = pyro.module('decoder', self.decoder)
         # TODO: Remove dummy non-module parameter added to test serialisation
         pyro.param('dummy_param', torch.arange(42, dtype=torch.double))
         with pyro.plate('observations', x.shape[0]):
             z_loc = x.new_zeros(self.latent_dim)
             z_scale = x.new_ones(self.latent_dim)
             z = pyro.sample('z', Normal(z_loc, z_scale).to_event(1))
-            x = pyro.sample('x', decoder.predict(z), obs=x)
+            x = pyro.sample('x', self.decoder.predict(z), obs=x)
         return x, z
 
     @pyro_method
     def guide(self, x: torch.Tensor):
-        encoder = pyro.module('encoder', self.encoder)
         with pyro.plate('observations', x.shape[0]):
-            z = pyro.sample('z', encoder.predict(x))
+            z = pyro.sample('z', self.encoder.predict(x))
         return z
 
 
