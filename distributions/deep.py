@@ -1,5 +1,5 @@
 import torch
-from pyro.distributions import Bernoulli, Independent, MultivariateNormal, Normal, TorchDistribution
+from pyro.distributions import Bernoulli, Beta, Gamma, Independent, MultivariateNormal, Normal, TorchDistribution
 from torch import nn
 
 from distributions.params import MixtureParams
@@ -98,6 +98,80 @@ class MixtureSIN(DeepConditional):
         mixture = self.mixture_params.get_distribution()
         posteriors = mixture.posterior(potentials)  # q(latents | data)
         return posteriors
+
+
+class _DeepIndepGamma(DeepConditional):
+    def __init__(self, backbone: nn.Module, rate_head: nn.Module, conc_head: nn.Module):
+        super().__init__()
+        self.backbone = backbone
+        self.rate_head = nn.Sequential(rate_head, nn.Softplus())
+        self.conc_head = nn.Sequential(conc_head, nn.Softplus())
+
+    def forward(self, x):
+        h = self.backbone(x)
+        rate = self.rate_head(h)
+        conc = self.conc_head(h)
+        return rate, conc
+
+    def predict(self, x) -> Independent:
+        rate, conc = self(x)
+        event_ndim = len(rate.shape[1:])  # keep only batch dimension
+        return Gamma(rate, conc).to_event(event_ndim)
+
+
+class DeepIndepGamma(_DeepIndepGamma):
+    def __init__(self, backbone: nn.Module, hidden_dim: int, out_dim: int):
+        super().__init__(
+            backbone=backbone,
+            rate_head=nn.Linear(hidden_dim, out_dim),
+            conc_head=nn.Linear(hidden_dim, out_dim)
+        )
+
+
+class _DeepIndepBeta(DeepConditional):
+    def __init__(self, backbone: nn.Module, alpha_head: nn.Module, beta_head: nn.Module):
+        super().__init__()
+        self.backbone = backbone
+        self.alpha_head = nn.Sequential(alpha_head, nn.Softplus())
+        self.beta_head = nn.Sequential(beta_head, nn.Softplus())
+
+    def forward(self, x):
+        h = self.backbone(x)
+        alpha = self.alpha_head(h)
+        beta = self.beta_head(h)
+        return alpha, beta
+
+    def predict(self, x) -> Independent:
+        alpha, beta = self(x)
+        event_ndim = len(alpha.shape[1:])  # keep only batch dimension
+        return Beta(alpha, beta).to_event(event_ndim)
+
+
+class DeepIndepBeta(_DeepIndepBeta):
+    def __init__(self, backbone: nn.Module, hidden_dim: int, out_dim: int):
+        super().__init__(
+            backbone=backbone,
+            alpha_head=nn.Linear(hidden_dim, out_dim),
+            beta_head=nn.Linear(hidden_dim, out_dim)
+        )
+
+
+class Conv2dIndepBeta(_DeepIndepBeta):
+    def __init__(self, backbone: nn.Module, hidden_channels: int = 1, out_channels: int = 1):
+        super().__init__(
+            backbone=backbone,
+            alpha_head=nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1),
+            beta_head=nn.Conv2d(hidden_channels, out_channels=out_channels, kernel_size=1)
+        )
+
+
+class Conv3dIndepBeta(_DeepIndepBeta):
+    def __init__(self, backbone: nn.Module, hidden_channels: int = 1, out_channels: int = 1):
+        super().__init__(
+            backbone=backbone,
+            alpha_head=nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1),
+            beta_head=nn.Conv3d(hidden_channels, out_channels=out_channels, kernel_size=1)
+        )
 
 
 class DeepBernoulli(DeepConditional):
