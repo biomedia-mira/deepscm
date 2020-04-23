@@ -76,10 +76,18 @@ class CovariatePGMVAE(PyroModule):
 
     @pyro_method
     def sample(self, n_samples=1):
-        with pyro.plate('observations', n_samples):
-            x, z, thickness, slant = self.model()
+        if n_samples is not None:
+            with pyro.plate('observations', n_samples):
+                model_trace = pyro.poutine.trace(self.model).get_trace()
+        else:
+            model_trace = pyro.poutine.trace(self.model).get_trace()
 
-        return x, z, thickness, slant
+        dist = model_trace.nodes['x']['fn'].base_dist
+        z = model_trace.nodes['z']['value']
+        thickness = model_trace.nodes['thickness']['value']
+        slant = model_trace.nodes['slant']['value']
+
+        return dist.mean, z, thickness, slant
 
     @pyro_method
     def svi_guide(self, x, thickness, slant):

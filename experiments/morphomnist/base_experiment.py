@@ -18,6 +18,7 @@ class BaseCovariateExperiment(PyroExperiment):
     def __init__(self, hparams):
         super().__init__()
 
+        hparams.experiment = self.__class__.__name__
         self.hparams = hparams
         self.data_dir = "/vol/biomedic2/np716/data/gemini/synthetic/2/"
         self.train_batch_size = 256
@@ -29,13 +30,13 @@ class BaseCovariateExperiment(PyroExperiment):
     def _build_svi(self, loss=TraceGraph_ELBO()):
         self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam({'lr': self.hparams.lr}), loss)
 
-    def measure_image(x, normalize=True):
-        imgs = x.detach().cpu().numpy()
+    def measure_image(self, x, normalize=True):
+        imgs = x.detach().cpu().numpy()[:, 0]
         imgs -= imgs.min()
         imgs /= imgs.max() + 1e-6
         measurements = measure.measure_batch(imgs)
 
-        return measurements['thickness'].values, measurements['slant'].values
+        return measurements['thickness'].values, np.rad2deg(measurements['slant'].values)
 
     def prepare_data(self):
         # prepare transforms standard to MNIST
@@ -164,32 +165,53 @@ class BaseCovariateExperiment(PyroExperiment):
 
     def sample_images(self):
         with torch.no_grad():
-            samples, *_ = self.pyro_model.sample(8)
+            samples, _, thickness, slant = self.pyro_model.sample(8)
             grid = torchvision.utils.make_grid(samples.data, normalize=True)
             self.logger.experiment.add_image('samples', grid, self.current_epoch)
+
+            measured_thickness, measured_slant = self.measure_image(samples)
+            self.logger.experiment.add_scalar('samples/thickness_mae', torch.mean(torch.abs(thickness.cpu() - measured_thickness)), self.current_epoch)
+            self.logger.experiment.add_scalar('samples/slant_mae', torch.mean(torch.abs(slant.cpu() - measured_slant)), self.current_epoch)
 
             thicknesses = 1. + torch.arange(3, device=samples.device, dtype=torch.float)
             thicknesses = thicknesses.repeat(3).unsqueeze(1)
             slants = 10 * (torch.arange(3, device=samples.device, dtype=torch.float) - 1)
             slants = slants.repeat_interleave(3).unsqueeze(1)
 
-            with pyro.plate('conditions', 9):
-                cond_sample = pyro.condition(self.pyro_model.model, data={'thickness': thicknesses, 'slant': slants})
-                samples, *_ = cond_sample()
+            with pyro.plate('observations', 9):
+                samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': thicknesses, 'slant': slants})(None)
             grid = torchvision.utils.make_grid(samples.data, normalize=True, nrow=3)
             self.logger.experiment.add_image('cond_samples', grid, self.current_epoch)
 
-            x, _, _ = self.prep_batch(next(iter(self.val_loader)))
+            x, thickness, slant = self.prep_batch(next(iter(self.val_loader)))
             x = x[:8]
+            thickness = thickness[:8]
+            slant = slant[:8]
+
             grid = torchvision.utils.make_grid(x, normalize=True)
             self.logger.experiment.add_image('input', grid, self.current_epoch)
             grid = torchvision.utils.make_grid((x > 0.1).float(), normalize=True)
             self.logger.experiment.add_image('input_binary', grid, self.current_epoch)
             x = x.to(samples.device)
+            thickness = thickness.to(samples.device)
+            slant = slant.to(samples.device)
 
             recons = self.pyro_model.reconstruct(x)
-            grid = torchvision.utils.make_grid(recons.data, normalize=True)
+            grid = torchvision.utils.make_grid(torch.cat([x, recons.data], 0), normalize=True)
             self.logger.experiment.add_image('reconstruction', grid, self.current_epoch)
 
-            grid = torchvision.utils.make_grid((recons.data > 0.5).float(), normalize=True)
+            grid = torchvision.utils.make_grid(torch.cat([(x > 0.2).float(), (recons.data > 0.2).float()], 0), normalize=True)
             self.logger.experiment.add_image('reconstruction_binary', grid, self.current_epoch)
+
+            z, *_ = self.pyro_model.encode(x)
+            cond_recons, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness, 'slant': slant})(8)
+            grid = torchvision.utils.make_grid(torch.cat([x, cond_recons.data], 0), normalize=True)
+            self.logger.experiment.add_image('cond_reconstruction', grid, self.current_epoch)
+
+            counter, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness + 3, 'slant': slant})(8)
+            grid = torchvision.utils.make_grid(torch.cat([x, counter], 0), normalize=True)
+            self.logger.experiment.add_image('counter_thickness', grid, self.current_epoch)
+
+            counter, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness, 'slant': slant + 10})(8)
+            grid = torchvision.utils.make_grid(torch.cat([x, counter], 0), normalize=True)
+            self.logger.experiment.add_image('counter_slant', grid, self.current_epoch)

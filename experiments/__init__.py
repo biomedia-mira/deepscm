@@ -46,7 +46,7 @@ class PyroExperiment(pl.LightningModule):
 
     def backward(self, *args, **kwargs):
         pass  # No loss to backpropagate since we're using Pyro's optimisation machinery
-    
+
     def state_dict(self, *args, **kwargs):
         return {}  # Avoid serialising Pyro params twice; delegated to on_save_checkpoint()
 

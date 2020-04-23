@@ -103,6 +103,8 @@ class MultiStepExperiment(Experiment):
         metrics['slant_cond_mae'] = torch.abs(cond_guide.nodes['slant']['fn'].base_dist.mean - slant).mean().item()
         metrics['slant_prior_mae'] = torch.abs(prior_guide.nodes['slant']['fn'].base_dist.mean - slant).mean().item()
 
+        metrics['z_loss'] = prior_model.nodes['z']['log_prob_sum'] - prior_guide.nodes['z']['log_prob_sum']
+
         return metrics
 
     def training_step(self, batch, batch_idx):
