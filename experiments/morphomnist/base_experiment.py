@@ -30,11 +30,11 @@ class BaseCovariateExperiment(PyroExperiment):
     def _build_svi(self, loss=TraceGraph_ELBO()):
         self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam({'lr': self.hparams.lr}), loss)
 
-    def measure_image(self, x, normalize=True):
+    def measure_image(self, x, normalize=True, threshold=0.3):
         imgs = x.detach().cpu().numpy()[:, 0]
         imgs -= imgs.min()
         imgs /= imgs.max() + 1e-6
-        measurements = measure.measure_batch(imgs)
+        measurements = measure.measure_batch(imgs, threshold=threshold, use_progress_bar=False)
 
         return measurements['thickness'].values, np.rad2deg(measurements['slant'].values)
 
