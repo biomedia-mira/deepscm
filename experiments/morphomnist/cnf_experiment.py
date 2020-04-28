@@ -17,12 +17,14 @@ from pyro.distributions.torch_transform import TransformModule, ComposeTransform
 from pyro.distributions.conditional import ConditionalTransformedDistribution
 from pyro.distributions.transforms import (
     Spline, ExpTransform, ComposeTransform, ConditionalAffineCoupling,
-    Permute, SigmoidTransform, AffineTransform, GeneralizedChannelPermute
+    Permute, SigmoidTransform, GeneralizedChannelPermute, AffineTransform
 )
 import torchvision
 from experiments import PyroExperiment
 from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
+from distributions.transforms.affine import ConditionalAffineTransform
 from arch.mnist import BasicFlowConvNet
+from pyro.nn import DenseNN
 from distributions.transforms.normalisation import ActNorm
 import numpy as np
 
@@ -48,8 +50,6 @@ class FlowModel(PyroModule):
         self.register_buffer('e_x_loc', torch.zeros([1, 32, 32], requires_grad=False))
         self.register_buffer('e_x_scale', torch.ones([1, 32, 32], requires_grad=False))
 
-        self.dims = {'x': 32 * 32, 'thickness': 1, 'slant': 1}
-
         # decoder parts
         # TODO:
         # Flow for modelling t Gamma
@@ -57,8 +57,9 @@ class FlowModel(PyroModule):
         self.t_flow_transforms = ComposeTransform([self.t_flow_components, ExpTransform()])
 
         # affine flow for s normal
-        self.s_affine_w = torch.nn.Parameter(torch.randn([1, ]))
-        self.s_affine_b = torch.nn.Parameter(torch.randn([1, ]))
+        slant_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
+        self.s_flow_components = ConditionalAffineTransform(context_nn=slant_net, event_dim=0)
+        self.s_flow_transforms = [self.s_flow_components]
         # build flow as s_affine_w * t * e_s + b -> depends on t though
 
         # realnvp or so for x
@@ -120,6 +121,12 @@ class FlowModel(PyroModule):
             ReshapeTransform((4**self.num_scales, 32 // 2**self.num_scales, 32 // 2**self.num_scales), (1, 32, 32))
         ]
 
+        affine_net = DenseNN(2, [16, 16], param_dims=[1, 1])
+        affine_trans = ConditionalAffineTransform(context_nn=affine_net, event_dim=3)
+
+        self.trans_modules.append(affine_trans)
+        self.x_transforms.append(affine_trans)
+
     @pyro_method
     def model(self):
         # TODO: disentangle PGM from images
@@ -129,11 +136,11 @@ class FlowModel(PyroModule):
         thickness = pyro.sample('thickness', t_dist.to_event(1))
 
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
-        s_dist = TransformedDistribution(s_bd, AffineTransform(self.s_affine_w * thickness, self.s_affine_b))
+        s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness)
 
         slant = pyro.sample('slant', s_dist.to_event(1))
 
-        context = torch.cat([thickness, slant], 1)
+        context = torch.cat([thickness / 3., slant / 30.], 1)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms).inv
@@ -154,10 +161,12 @@ class FlowModel(PyroModule):
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
         e_s = pyro.sample('e_s', s_bd)
 
-        slant = AffineTransform(self.s_affine_w * thickness, self.s_affine_b)(e_s)
+        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness).transforms)
+
+        slant = cond_s_transforms(e_s)
         slant = pyro.deterministic('slant', slant)
 
-        context = torch.cat([thickness, slant], 1)
+        context = torch.cat([thickness / 3., slant / 30.], 1)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         e_x = pyro.sample('e_x', x_bd)
@@ -174,12 +183,14 @@ class FlowModel(PyroModule):
 
     @pyro_method
     def infer_e_s(self, t, s):
-        return AffineTransform(self.s_affine_w * t, self.s_affine_b).inv(s)
+        s_bd = Normal(self.e_s_loc, self.e_s_scale)
+        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(t).transforms)
+        return cond_s_transforms.inv(s)
 
     @pyro_method
     def infer_e_x(self, t, s, x):
         x_bd = Normal(self.e_x_loc, self.e_x_scale)
-        context = torch.cat([t, s], 1)
+        context = torch.cat([t / 3., s / 30.], 1)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms)
         return cond_x_transforms(x)
 
@@ -211,13 +222,32 @@ class CNFExperiment(BaseCovariateExperiment):
         self.train_batch_size = hparams.train_batch_size
         self.test_batch_size = hparams.test_batch_size
 
+        torch.autograd.set_detect_anomaly(self.hparams.validate)
+        if hparams.validate:
+            import random
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
+            torch.manual_seed(0)
+            np.random.seed(0)
+            random.seed(0)
+
         self.pyro_model = FlowModel(
             num_scales=hparams.num_scales, flows_per_scale=hparams.flows_per_scale,
             preprocessing=hparams.preprocessing, hidden_channels=hparams.hidden_channels,
             use_actnorm=hparams.use_actnorm)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        thickness_params = self.pyro_model.t_flow_components.parameters()
+        slant_params = self.pyro_model.s_flow_components.parameters()
+
+        x_params = self.pyro_model.trans_modules.parameters()
+
+        return torch.optim.Adam([
+                {'params': x_params, 'lr': self.hparams.lr},
+                {'params': thickness_params, 'lr': 5e-2},
+                {'params': slant_params, 'lr': 5e-2},
+            ], lr=self.hparams.lr)
 
     def _get_parameters(self, *args, **kwargs):
         return super(PyroExperiment, self)._get_parameters(*args, **kwargs)
@@ -243,6 +273,10 @@ class CNFExperiment(BaseCovariateExperiment):
                 else:
                     dims = 1.
                 nats_per_dim[name] = -site["log_prob"].mean() / dims
+                if self.hparams.validate:
+                    print(f'at site {name} with dim {dims} and nats: {nats_per_dim[name]} and logprob: {log_probs[name]}')
+                    if torch.any(torch.isnan(nats_per_dim[name])):
+                        raise ValueError('got nan')
 
         return log_probs, nats_per_dim
 
@@ -266,11 +300,6 @@ class CNFExperiment(BaseCovariateExperiment):
 
         lls = {('train/' + k + '_ll'): v for k, v in log_probs.items()}
         nats_per_dim = {('train/' + k + '_nats_per_dim'): v for k, v in nats_per_dim.items()}
-
-        if hparams.validate:
-            print('Validation - Nats:')
-            for k, v in nats_per_dim.items():
-                print(f'{k} = {v}')
 
         tensorboard_logs = {'train/loss': loss, **nats_per_dim, **lls}
 
@@ -367,8 +396,8 @@ if __name__ == '__main__':
     parser._action_groups[1].title = 'lightning_options'
 
     experiment_group = parser.add_argument_group('experiment')
-    experiment_group.add_argument('--num_scales', default=3, type=int, help="number of scales (defaults to 3)")
-    experiment_group.add_argument('--flows_per_scale', default=5, type=int, help="number of flows per scale (defaults to 5)")
+    experiment_group.add_argument('--num_scales', default=3, type=int, help="number of scales (defaults to 4)")
+    experiment_group.add_argument('--flows_per_scale', default=5, type=int, help="number of flows per scale (defaults to 2)")
     experiment_group.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing", choices=['realnvp', 'glow'])
     experiment_group.add_argument('--hidden_channels', default=256, type=int, help="number of hidden channels in convnet (defaults to 256)")
     experiment_group.add_argument('--lr', default=1e-4, type=float, help="latent dimension of model (defaults to 1e-4)")
