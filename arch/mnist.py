@@ -91,11 +91,9 @@ class BasicFlowConvNet(nn.Module):
         self.context_dims = context_dims
 
         self.seq1 = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, kernel_size=3, padding=1),
-            nn.ReLU()
-        )
-        self.hid = nn.Conv2d(hidden_channels + context_dims if context_dims is not None else hidden_channels, hidden_channels, kernel_size=1)
-        self.seq2 = nn.Sequential(
+            nn.Conv2d(in_channels + context_dims if context_dims is not None else in_channels, hidden_channels, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(hidden_channels, hidden_channels, kernel_size=1),
             nn.ReLU(),
             nn.Conv2d(hidden_channels, self.output_dims, kernel_size=3, padding=1)
         )
@@ -118,13 +116,12 @@ class BasicFlowConvNet(nn.Module):
         permutation = np.array((2, 0, 1)) + num_batch
         outputs = inputs.permute(*np.arange(num_batch), *permutation).contiguous()
 
-        outputs = self.seq1(outputs)
         if context is not None:
             # assuming scalar inputs [B, C]
             context = context.view(*context.shape, 1, 1).expand(-1, -1, *outputs.shape[2:])
             outputs = torch.cat([outputs, context], 1)
-        outputs = self.hid(outputs)
-        outputs = self.seq2(outputs)
+
+        outputs = self.seq1(outputs)
 
         permutation = np.array((1, 2, 0)) + num_batch
         outputs = outputs.permute(*np.arange(num_batch), *permutation).contiguous()
