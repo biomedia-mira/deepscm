@@ -3,6 +3,8 @@ from torch import nn
 
 import numpy as np
 
+from collections.abc import Iterable
+
 
 class Encoder(nn.Module):
     def __init__(self, hidden_dim: int):
@@ -79,7 +81,7 @@ class Decoder(nn.Module):
 
 
 class BasicFlowConvNet(nn.Module):
-    def __init__(self, in_channels: int, hidden_channels: int, param_dims, context_dims: int = None):
+    def __init__(self, in_channels: int, hidden_channels: int, param_dims, context_dims: int = None, param_nonlinearities=None):
         super().__init__()
         self.in_channels = in_channels
         self.hidden_channels = hidden_channels
@@ -89,6 +91,7 @@ class BasicFlowConvNet(nn.Module):
         self.output_dims = sum(param_dims)
 
         self.context_dims = context_dims
+        self.param_nonlinearities = param_nonlinearities
 
         self.seq1 = nn.Sequential(
             nn.Conv2d(in_channels + context_dims if context_dims is not None else in_channels, hidden_channels, kernel_size=3, padding=1),
@@ -101,6 +104,14 @@ class BasicFlowConvNet(nn.Module):
         ends = torch.cumsum(torch.tensor(param_dims), dim=0)
         starts = torch.cat((torch.zeros(1).type_as(ends), ends[:-1]))
         self.param_slices = [slice(s.item(), e.item()) for s, e in zip(starts, ends)]
+
+        def weights_init(m):
+            if isinstance(m, nn.Conv2d):
+                nn.init.normal_(m.weight.data, 0., 1e-4)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0.)
+
+        self.apply(weights_init)
 
     def forward(self, inputs, context=None):
         # pyro affine coupling splits on the last dimenion and not the channel dimension
@@ -127,7 +138,13 @@ class BasicFlowConvNet(nn.Module):
         outputs = outputs.permute(*np.arange(num_batch), *permutation).contiguous()
 
         if self.count_params > 1:
-            outputs = tuple([outputs[..., s] for s in self.param_slices])
+            outputs = tuple(outputs[..., s] for s in self.param_slices)
+
+        if self.param_nonlinearities is not None:
+            if isinstance(self.param_nonlinearities, Iterable):
+                outputs = tuple(n(o) for o, n in zip(outputs, self.param_nonlinearities))
+            else:
+                outputs = tuple(self.param_nonlinearities(o) for o in outputs)
 
         return outputs
 
