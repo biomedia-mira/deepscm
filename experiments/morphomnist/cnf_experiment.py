@@ -23,15 +23,18 @@ import torchvision
 from experiments import PyroExperiment
 from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
 from arch.mnist import BasicFlowConvNet
+from distributions.transforms.normalisation import ActNorm
+import numpy as np
 
 
 class FlowModel(PyroModule):
-    def __init__(self, num_scales: int = 4, flows_per_scale: int = 2, preprocessing: str = 'realnvp', hidden_mult: int = 2):
+    def __init__(self, num_scales: int = 4, flows_per_scale: int = 2, preprocessing: str = 'realnvp', hidden_channels: int = 256, use_actnorm: bool = False):
         super().__init__()
         self.num_scales = num_scales
         self.flows_per_scale = flows_per_scale
         self.preprocessing = preprocessing
-        self.hidden_mult = hidden_mult
+        self.hidden_channels = hidden_channels
+        self.use_actnorm = use_actnorm
 
         # TODO: This could be handled by passing a product distribution?
 
@@ -67,20 +70,43 @@ class FlowModel(PyroModule):
 
         self.trans_modules = ComposeTransformModule([])
 
-        self.x_transforms = [
-            ReshapeTransform((1, 32, 32), (4 ** self.num_scales, 32 // 2 ** self.num_scales, 32 // 2 ** self.num_scales))
-        ]
+        self.x_transforms = []
 
-        c = 4 ** self.num_scales
+        if self.preprocessing == 'glow':
+            # Map to [-0.5,0.5]
+            a1 = AffineTransform(-0.5, (1. / 2 ** num_bits))
+            preprocess_transform = [a1]
+        elif self.preprocessing == 'realnvp':
+            # Map to [0,1]
+            a1 = AffineTransform(0., (1. / 2 ** num_bits))
+
+            # Map into unconstrained space as done in RealNVP
+            a2 = AffineTransform(alpha, (1 - alpha))
+
+            s = SigmoidTransform()
+
+            preprocess_transform = [a1, a2, s.inv]
+
+        self.x_transforms += preprocess_transform
+
+        c = 1
         for scale in range(self.num_scales):
+            self.x_transforms.append(SqueezeTransform())
+            c *= 4
+
             for _ in range(self.flows_per_scale):
+                if self.use_actnorm:
+                    actnorm = ActNorm(c)
+                    self.trans_modules.append(actnorm)
+                    self.x_transforms.append(actnorm)
+
                 gcp = GeneralizedChannelPermute(channels=c)
                 self.trans_modules.append(gcp)
                 self.x_transforms.append(gcp)
 
                 self.x_transforms.append(TransposeTransform(torch.tensor((1, 2, 0))))
 
-                ac = ConditionalAffineCoupling(c // 2, BasicFlowConvNet(c // 2, c * self.hidden_mult, (c // 2, c // 2), 2))
+                ac = ConditionalAffineCoupling(c // 2, BasicFlowConvNet(c // 2, self.hidden_channels, (c // 2, c // 2), 2))
                 self.trans_modules.append(ac)
                 self.x_transforms.append(ac)
 
@@ -89,30 +115,10 @@ class FlowModel(PyroModule):
             gcp = GeneralizedChannelPermute(channels=c)
             self.trans_modules.append(gcp)
             self.x_transforms.append(gcp)
-            self.x_transforms.append(SqueezeTransform().inv)
 
-            c = c // 4
-
-        gcp = GeneralizedChannelPermute(channels=1)
-        self.trans_modules.append(gcp)
-        self.x_transforms.append(gcp)
-
-        if self.preprocessing == 'glow':
-            # Map to [-0.5,0.5]
-            a1 = AffineTransform(-0.5, (1. / 2 ** num_bits))
-            preprocess_transform = [a1.inv]
-        elif self.preprocessing == 'realnvp':
-            s = SigmoidTransform()
-
-            # Map into unconstrained space as done in RealNVP
-            a1 = AffineTransform(alpha, (1 - alpha))
-
-            # Map to [0,1]
-            a2 = AffineTransform(0., (1. / 2 ** num_bits))
-
-            preprocess_transform = [s, a1.inv, a2.inv]
-
-        self.x_transforms += preprocess_transform
+        self.x_transforms += [
+            ReshapeTransform((4**self.num_scales, 32 // 2**self.num_scales, 32 // 2**self.num_scales), (1, 32, 32))
+        ]
 
     @pyro_method
     def model(self):
@@ -130,8 +136,8 @@ class FlowModel(PyroModule):
         context = torch.cat([thickness, slant], 1)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
-        x_dist = ConditionalTransformedDistribution(x_bd, self.x_transforms)
-        cond_x_dist = x_dist.condition(context)
+        cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms).inv
+        cond_x_dist = TransformedDistribution(x_bd, cond_x_transforms)
 
         x = pyro.sample('x', cond_x_dist)
 
@@ -155,7 +161,7 @@ class FlowModel(PyroModule):
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         e_x = pyro.sample('e_x', x_bd)
-        cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms)
+        cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms).inv
 
         x = cond_x_transforms(e_x)
         x = pyro.deterministic('x', x)
@@ -175,7 +181,7 @@ class FlowModel(PyroModule):
         x_bd = Normal(self.e_x_loc, self.e_x_scale)
         context = torch.cat([t, s], 1)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms)
-        return cond_x_transforms.inv(x)
+        return cond_x_transforms(x)
 
     def infer(self, t, s, x):
         e_t = self.infer_e_t(t)
@@ -202,9 +208,13 @@ class CNFExperiment(BaseCovariateExperiment):
     def __init__(self, hparams):
         super().__init__(hparams)
 
+        self.train_batch_size = hparams.train_batch_size
+        self.test_batch_size = hparams.test_batch_size
+
         self.pyro_model = FlowModel(
             num_scales=hparams.num_scales, flows_per_scale=hparams.flows_per_scale,
-            preprocessing=hparams.preprocessing, hidden_mult=hparams.hidden_mult)
+            preprocessing=hparams.preprocessing, hidden_channels=hparams.hidden_channels,
+            use_actnorm=hparams.use_actnorm)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -222,11 +232,19 @@ class CNFExperiment(BaseCovariateExperiment):
         model_trace.compute_log_prob()
 
         log_probs = {}
+        nats_per_dim = {}
         for name, site in model_trace.nodes.items():
             if site["type"] == "sample" and site["is_observed"]:
                 log_probs[name] = site["log_prob"].mean()
+                log_prob_shape = site["log_prob"].shape
+                value_shape = site["value"].shape
+                if len(log_prob_shape) < len(value_shape):
+                    dims = np.prod(value_shape[len(log_prob_shape):])
+                else:
+                    dims = 1.
+                nats_per_dim[name] = -site["log_prob"].mean() / dims
 
-        return log_probs
+        return log_probs, nats_per_dim
 
     def prep_batch(self, batch):
         x = batch['image'].float()
@@ -243,40 +261,42 @@ class CNFExperiment(BaseCovariateExperiment):
     def training_step(self, batch, batch_idx):
         x, thickness, slant = self.prep_batch(batch)
 
-        if self.hparams.validate:
-            self.print_trace_updates(batch)
-
-        log_probs = self.get_logprobs(x, thickness, slant)
-        loss = -torch.stack(tuple(log_probs.values())).sum()
+        log_probs, nats_per_dim = self.get_logprobs(x, thickness, slant)
+        loss = torch.stack(tuple(nats_per_dim.values())).sum()
 
         lls = {('train/' + k + '_ll'): v for k, v in log_probs.items()}
-        bits_per_dim = {('train/' + k + '_bits_per_dim'): -v / self.pyro_model.dims[k] for k, v in log_probs.items()}
+        nats_per_dim = {('train/' + k + '_nats_per_dim'): v for k, v in nats_per_dim.items()}
 
-        tensorboard_logs = {'train/loss': loss, **bits_per_dim, **lls}
+        if hparams.validate:
+            print('Validation - Nats:')
+            for k, v in nats_per_dim.items():
+                print(f'{k} = {v}')
+
+        tensorboard_logs = {'train/loss': loss, **nats_per_dim, **lls}
 
         return {'loss': loss, 'log': tensorboard_logs, **lls}
 
     def validation_step(self, batch, batch_idx):
         x, thickness, slant = self.prep_batch(batch)
 
-        log_probs = self.get_logprobs(x, thickness, slant)
-        loss = -torch.stack(tuple(log_probs.values())).sum()
+        log_probs, nats_per_dim = self.get_logprobs(x, thickness, slant)
+        loss = torch.stack(tuple(nats_per_dim.values())).sum()
 
         lls = {(k + '_ll'): v for k, v in log_probs.items()}
-        bits_per_dim = {(k + '_bits_per_dim'): -v / self.pyro_model.dims[k] for k, v in log_probs.items()}
+        nats_per_dim = {(k + '_nats_per_dim'): v for k, v in nats_per_dim.items()}
 
-        return {'loss': loss, **lls, **bits_per_dim}
+        return {'loss': loss, **lls, **nats_per_dim}
 
     def test_step(self, batch, batch_idx):
         x, thickness, slant = self.prep_batch(batch)
 
-        log_probs = self.get_logprobs(x, thickness, slant)
-        loss = -torch.stack(tuple(log_probs.values())).sum()
+        log_probs, nats_per_dim = self.get_logprobs(x, thickness, slant)
+        loss = torch.stack(tuple(nats_per_dim.values())).sum()
 
         lls = {(k + '_ll'): v for k, v in log_probs.items()}
-        bits_per_dim = {(k + '_bits_per_dim'): -v / self.pyro_model.dims[k] for k, v in log_probs.items()}
+        nats_per_dim = {(k + '_nats_per_dim'): v for k, v in nats_per_dim.items()}
 
-        return {'loss': loss, **lls, **bits_per_dim}
+        return {'loss': loss, **lls, **nats_per_dim}
 
     def sample_images(self):
         if self.current_epoch < 10:
@@ -347,12 +367,15 @@ if __name__ == '__main__':
     parser._action_groups[1].title = 'lightning_options'
 
     experiment_group = parser.add_argument_group('experiment')
-    experiment_group.add_argument('--num_scales', default=4, type=int, help="number of scales (defaults to 4)")
-    experiment_group.add_argument('--flows_per_scale', default=2, type=int, help="number of flows per scale (defaults to 2)")
+    experiment_group.add_argument('--num_scales', default=3, type=int, help="number of scales (defaults to 3)")
+    experiment_group.add_argument('--flows_per_scale', default=5, type=int, help="number of flows per scale (defaults to 5)")
     experiment_group.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing", choices=['realnvp', 'glow'])
-    experiment_group.add_argument('--hidden_mult', default=2, type=int, help="multiplier for num hidden channels in convnet (defaults to 2)")
+    experiment_group.add_argument('--hidden_channels', default=256, type=int, help="number of hidden channels in convnet (defaults to 256)")
     experiment_group.add_argument('--lr', default=1e-4, type=float, help="latent dimension of model (defaults to 1e-4)")
+    experiment_group.add_argument('--use_actnorm', default=False, action='store_true', help="whether to use activation norm (defaults to False)")
     experiment_group.add_argument('--validate', default=False, action='store_true', help="latent dimension of model (defaults to False)")
+    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
+    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
 
     args = parser.parse_args()
 
