@@ -105,8 +105,8 @@ class BaseCovariateExperiment(PyroExperiment):
 
     def prep_batch(self, batch):
         x = batch['image']
-        thickness = batch['thickness'].unsqueeze(1)
-        slant = batch['slant'].unsqueeze(1)
+        thickness = batch['thickness'].unsqueeze(1).float()
+        slant = batch['slant'].unsqueeze(1).float()
 
         x = x.float()
         # dequantise
