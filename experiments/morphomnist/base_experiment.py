@@ -59,6 +59,7 @@ class BaseCovariateExperiment(PyroExperiment):
         self.thickness_range = thicknesses.repeat(3).unsqueeze(1)
         slants = 10 * (torch.arange(3, dtype=torch.float, device=self.device) - 1)
         self.slant_range = slants.repeat_interleave(3).unsqueeze(1)
+        self.z_range = torch.zeros([9, self.hparams.latent_dim], device=self.device, dtype=torch.float)
 
     def train_dataloader(self):
         return DataLoader(self.mnist_train, batch_size=self.train_batch_size, shuffle=True)
@@ -157,7 +158,8 @@ class BaseCovariateExperiment(PyroExperiment):
             for k, v in r.items():
                 metrics[('val/' + k)] += v / num_items
 
-        self.sample_images()
+        if self.current_epoch % self.hparams.sample_img_interval == 0:
+            self.sample_images()
 
         return {'val_loss': metrics['val/loss'], 'log': metrics}
 
