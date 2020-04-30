@@ -5,7 +5,7 @@ from torch.distributions import transforms
 import torch
 
 
-class AffineTransform(TransformModule, transforms.AffineTransform):
+class LearnedAffineTransform(TransformModule, transforms.AffineTransform):
     def __init__(self, loc=None, scale=None, **kwargs):
 
         super().__init__(loc=loc, scale=scale, **kwargs)
@@ -43,5 +43,5 @@ class ConditionalAffineTransform(ConditionalTransformModule):
         loc, log_scale = self.context_nn(context)
         scale = torch.exp(log_scale)
 
-        ac = AffineTransform(loc, scale, event_dim=self.event_dim)
+        ac = transforms.AffineTransform(loc, scale, event_dim=self.event_dim)
         return ac
