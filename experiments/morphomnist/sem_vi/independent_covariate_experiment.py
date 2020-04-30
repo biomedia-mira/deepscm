@@ -13,7 +13,7 @@ from pyro.distributions.transforms import (
 from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.conditional import ConditionalTransformedDistribution
 from experiments.morphomnist.base_experiment import BaseCovariateExperiment
-from distributions.transforms.affine import ConditionalAffineTransform, AffineTransform as LearnedAffineTransform
+from distributions.transforms.affine import ConditionalAffineTransform, LearnedAffineTransform
 from pyro.nn import DenseNN
 
 from pyro.infer import SVI, Trace_ELBO, TraceGraph_ELBO
@@ -57,7 +57,10 @@ class IndependentVAE(BaseSEM):
         self.s_flow_transforms = [self.s_flow_components]
 
         # encoder parts
-        self.encoder = DeepIndepNormal(Encoder(hidden_dim), hidden_dim, latent_dim)
+        self.encoder = Encoder(hidden_dim)
+
+        latent_layers = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+        self.latent_encoder = DeepIndepNormal(latent_layers, hidden_dim, latent_dim)
 
     @pyro_method
     def pgm_model(self):
@@ -132,7 +135,9 @@ class IndependentVAE(BaseSEM):
     @pyro_method
     def guide(self, x, thickness, slant):
         with pyro.plate('observations', x.shape[0]):
-            latent_dist = self.encoder.predict(x)
+            hidden = self.encoder(x)
+
+            latent_dist = self.latent_encoder.predict(hidden)
 
             z = pyro.sample('z', latent_dist)
 
@@ -163,9 +168,10 @@ if __name__ == '__main__':
     experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (defaults to 1e-4)")
     experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (defaults to 5e-2)")
     experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (defaults to False)")
-    experiment_group.add_argument('--num_sample_particles', default=16, type=int, help="number of particles to use for MC sampling (defaults to 16)")
+    experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (defaults to 32)")
     experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
     experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
+    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (defaults to 10)")
 
     args = parser.parse_args()
 
