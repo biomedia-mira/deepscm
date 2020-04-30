@@ -36,7 +36,7 @@ def load_morphomnist_like(root_dir, train: bool = True, columns=None) \
     images = io.load_idx(images_path)
     labels = io.load_idx(labels_path)
 
-    if 'index' not in columns:
+    if columns is not None and 'index' not in columns:
         usecols = ['index'] + list(columns)
     else:
         usecols = columns
