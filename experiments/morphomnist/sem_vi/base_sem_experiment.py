@@ -221,7 +221,7 @@ class BaseSEMExperiment(BaseCovariateExperiment):
             self.logger.experiment.add_scalar('samples/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
             self.logger.experiment.add_scalar('samples/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
 
-            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'slant': self.slant_range})(9)
+            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'slant': self.slant_range, 'z': self.z_range})(9)
             self.log_img_grid('cond_samples', samples.data, nrow=3)
 
             x, thickness, slant = self.prep_batch(self.get_batch(self.val_loader))
@@ -247,6 +247,7 @@ class BaseSEMExperiment(BaseCovariateExperiment):
 
             recon = self.pyro_model.reconstruct(x, thickness, slant, num_particles=self.hparams.num_sample_particles)
             self.log_img_grid('reconstruction', torch.cat([x, recon], 0))
+            self.logger.experiment.add_scalar('reconstruction/mse', torch.mean(torch.square(x - recon).sum((1, 2, 3))), self.current_epoch)
 
             measured_thickness, measured_slant = self.measure_image(recon)
             self.logger.experiment.add_scalar(
