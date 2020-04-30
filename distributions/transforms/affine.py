@@ -5,7 +5,7 @@ from torch.distributions import transforms
 import torch
 
 
-class AffineTransform(transforms.AffineTransform, TransformModule):
+class AffineTransform(TransformModule, transforms.AffineTransform):
     def __init__(self, loc=None, scale=None, **kwargs):
 
         super().__init__(loc=loc, scale=scale, **kwargs)
