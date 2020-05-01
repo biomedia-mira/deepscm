@@ -196,14 +196,23 @@ class BaseCovariateExperiment(PyroExperiment):
         requires data to be:
         {'data1': {'x': x, 'y': y}, 'data2': {'x': x, 'y': y}, ..}
         """
+        def np_val(x):
+            return x.cpu().numpy().squeeze() if isinstance(x, torch.Tensor) else x.squeeze()
+
         fig, ax = plt.subplots(1, len(data), figsize=(5 * len(data), 3))
         for i, (name, covariates) in enumerate(data.items()):
-            (x_n, x), (y_n, y) = tuple(covariates.items())
-            sns.kdeplot(x.cpu().numpy().squeeze(), y.cpu().numpy().squeeze(), ax=ax[i], shade=True, shade_lowest=False)
+            if len(covariates) == 1:
+                (x_n, x), = tuple(covariates.items())
+                sns.kdeplot(np_val(x), ax=ax[i], shade=True, shade_lowest=False)
+            elif len(covariates) == 2:
+                (x_n, x), (y_n, y) = tuple(covariates.items())
+                sns.kdeplot(np_val(x), np_val(y), ax=ax[i], shade=True, shade_lowest=False)
+                ax[i].set_ylabel(y_n)
+            else:
+                raise ValueError(f'got too many values: {len(covariates)}')
 
             ax[i].set_title(name)
             ax[i].set_xlabel(x_n)
-            ax[i].set_ylabel(y_n)
 
         sns.despine()
 
