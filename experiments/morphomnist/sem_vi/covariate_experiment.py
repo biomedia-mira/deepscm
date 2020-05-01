@@ -178,6 +178,7 @@ if __name__ == '__main__':
     experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
     experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
     experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (defaults to 10)")
+    experiment_group.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (defaults to 4)")
 
     args = parser.parse_args()
 
