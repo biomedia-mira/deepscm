@@ -27,7 +27,7 @@ from experiments.morphomnist.sem_vi.base_sem_experiment import BaseSEM, BaseSEME
 
 
 class SEMVAE(BaseSEM):
-    def __init__(self, hidden_dim: int, latent_dim: int):
+    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
@@ -47,7 +47,10 @@ class SEMVAE(BaseSEM):
         self.register_buffer('e_x_scale', torch.ones([1, 28, 28], requires_grad=False))
 
         # decoder parts
-        self.decoder = Conv2dIndepNormal(Decoder(latent_dim + 2), 1)
+        self.decoder = Decoder(latent_dim + 2)
+
+        self.decoder_mean = torch.nn.Conv2d(1, 1, 1)
+        self.decoder_logstd = torch.nn.Parameter(torch.ones([]) * logstd_init)
         # Flow for modelling t Gamma
         self.t_flow_components = ComposeTransformModule([Spline(1)])
         self.t_flow_transforms = ComposeTransform([self.t_flow_components, ExpTransform()])
@@ -90,9 +93,8 @@ class SEMVAE(BaseSEM):
 
         latent = torch.cat([z, thickness, slant], 1)
 
-        x_normal = self.decoder.predict(latent)
-        x_loc = x_normal.base_dist.loc
-        x_scale = x_normal.base_dist.scale
+        x_loc = self.decoder_mean(self.decoder(latent))
+        x_scale = torch.exp(self.decoder_logstd)
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
 
         x_dist = TransformedDistribution(x_bd, ComposeTransform([AffineTransform(x_loc, x_scale, 3), SigmoidTransform()]))
@@ -127,9 +129,8 @@ class SEMVAE(BaseSEM):
 
         latent = torch.cat([z, thickness, slant], 1)
 
-        x_normal = self.decoder.predict(latent)
-        x_loc = x_normal.base_dist.loc
-        x_scale = x_normal.base_dist.scale
+        x_loc = self.decoder_mean(self.decoder(latent))
+        x_scale = torch.exp(self.decoder_logstd)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         e_x = pyro.sample('e_x', x_bd)
@@ -176,6 +177,7 @@ if __name__ == '__main__':
     experiment_group.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (defaults to 100)")
     experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (defaults to 1e-4)")
     experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (defaults to 5e-2)")
+    experiment_group.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (defaults to -5)")
     experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (defaults to False)")
     experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (defaults to 32)")
     experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
@@ -198,6 +200,6 @@ if __name__ == '__main__':
 
     trainer = Trainer.from_argparse_args(lightning_args)
 
-    experiment = BaseSEMExperiment(hparams, SEMVAE(hidden_dim=hparams.hidden_dim, latent_dim=hparams.latent_dim))
+    experiment = BaseSEMExperiment(hparams, SEMVAE(hidden_dim=hparams.hidden_dim, latent_dim=hparams.latent_dim, logstd_init=hparams.logstd_init))
 
     trainer.fit(experiment)
