@@ -142,22 +142,25 @@ class BaseSEM(PyroModule):
 
 
 class BaseSEMExperiment(BaseCovariateExperiment):
-    svi_loss = CustomELBO()
-
     def __init__(self, hparams, pyro_model):
         super().__init__(hparams, pyro_model)
+
+        self.svi_loss = CustomELBO(num_particles=hparams.num_svi_particles)
 
         self._build_svi()
 
     def log_img_grid(self, tag, imgs, normalize=True, save_img=True, **kwargs):
         super().log_img_grid(tag, imgs, normalize, save_img, **kwargs)
 
-    def _build_svi(self, loss=svi_loss):
+    def _build_svi(self, loss=None):
         def per_param_callable(module_name, param_name):
             if module_name == 's_flow_components' or module_name == 't_flow_components':
                 return {"lr": self.hparams.pgm_lr}
             else:
                 return {"lr": self.hparams.lr}
+
+        if loss is None:
+            loss = self.svi_loss
 
         self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
         self.svi.loss_class = loss
@@ -212,6 +215,51 @@ class BaseSEMExperiment(BaseCovariateExperiment):
 
         return {'loss': loss, **metrics}
 
+    def build_reconstruction(self, x, thickness, slant, tag='reconstruction'):
+        recon = self.pyro_model.reconstruct(x, thickness, slant, num_particles=self.hparams.num_sample_particles)
+        self.log_img_grid(tag, torch.cat([x, recon], 0))
+        self.logger.experiment.add_scalar(f'{tag}/mse', torch.mean(torch.square(x - recon).sum((1, 2, 3))), self.current_epoch)
+
+        measured_thickness, measured_slant = self.measure_image(recon)
+        self.logger.experiment.add_scalar(
+            f'{tag}/thickness_mae', torch.mean(torch.abs(thickness.cpu() - measured_thickness)), self.current_epoch)
+        self.logger.experiment.add_scalar(
+            f'{tag}/slant_mae', torch.mean(torch.abs(slant.cpu() - measured_slant)), self.current_epoch)
+
+    def build_counterfactual(self, tag, x, thickness, slant, conditions, absolute=None):
+        imgs = [x]
+        if absolute == 'thickness':
+            sampled_kdes = {'orig': {'slant': slant}}
+        elif absolute == 'slant':
+            sampled_kdes = {'orig': {'thickness': thickness}}
+        else:
+            sampled_kdes = {'orig': {'thickness': thickness, 'slant': slant}}
+        measured_kdes = {'orig': {'thickness': thickness, 'slant': slant}}
+
+        for name, data in conditions.items():
+            counter, _, sampled_thickness, sampled_slant = self.pyro_model.counterfactual(
+                x, thickness, slant, data=data, num_particles=self.hparams.num_sample_particles)
+
+            measured_thickness, measured_slant = self.measure_image(counter.cpu())
+
+            imgs.append(counter)
+            if absolute == 'thickness':
+                sampled_kdes[name] = {'slant': sampled_slant}
+            elif absolute == 'slant':
+                sampled_kdes[name] = {'thickness': sampled_thickness}
+            else:
+                sampled_kdes[name] = {'thickness': sampled_thickness, 'slant': sampled_slant}
+            measured_kdes[name] = {'thickness': measured_thickness, 'slant': measured_slant}
+
+            self.logger.experiment.add_scalar(
+                f'{tag}/{name}/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
+            self.logger.experiment.add_scalar(
+                f'{tag}/{name}/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+
+        self.log_img_grid(tag, torch.cat(imgs, 0))
+        self.log_kdes(f'{tag}_sampled', sampled_kdes, save_img=True)
+        self.log_kdes(f'{tag}_measured', measured_kdes, save_img=True)
+
     def sample_images(self):
         with torch.no_grad():
             samples, z, sampled_thickness, sampled_slant = self.pyro_model.sample(128)
@@ -245,42 +293,37 @@ class BaseSEMExperiment(BaseCovariateExperiment):
 
             self.log_img_grid('input', x, save_img=True)
 
-            recon = self.pyro_model.reconstruct(x, thickness, slant, num_particles=self.hparams.num_sample_particles)
-            self.log_img_grid('reconstruction', torch.cat([x, recon], 0))
-            self.logger.experiment.add_scalar('reconstruction/mse', torch.mean(torch.square(x - recon).sum((1, 2, 3))), self.current_epoch)
+            vals = [x, thickness, slant]
 
-            measured_thickness, measured_slant = self.measure_image(recon)
-            self.logger.experiment.add_scalar(
-                'reconstruction/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar(
-                'reconstruction/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+            self.build_reconstruction(*vals)
 
-            counter, _, sampled_thickness, sampled_slant = self.pyro_model.counterfactual(
-                x, thickness, slant, data={'thickness': thickness + 2}, num_particles=self.hparams.num_sample_particles)
-            self.log_img_grid('counter_thickness (+2)', torch.cat([x, counter], 0))
+            conditions = {
+                '+1': {'thickness': thickness + 1},
+                '+2': {'thickness': thickness + 2},
+                '+3': {'thickness': thickness + 3}
+            }
+            self.build_counterfactual('do(thickess=+x)', *vals, conditions=conditions)
 
-            measured_thickness, measured_slant = self.measure_image(counter.cpu())
-            self.logger.experiment.add_scalar(
-                'counter_thickness (+2)/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar(
-                'counter_thickness (+2)/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+            conditions = {
+                '1': {'thickness': torch.ones_like(thickness)},
+                '2': {'thickness': torch.ones_like(thickness) * 2},
+                '3': {'thickness': torch.ones_like(thickness) * 3}
+            }
+            self.build_counterfactual('do(thickess=x)', *vals, conditions=conditions, absolute='thickness')
 
-            counter, _, sampled_thickness, sampled_slant = self.pyro_model.counterfactual(
-                x, thickness, slant, data={'slant': slant + 20}, num_particles=self.hparams.num_sample_particles)
-            self.log_img_grid('counter_slant (+20)', torch.cat([x, counter], 0))
+            conditions = {
+                '-45': {'slant': slant - 45},
+                '-25': {'slant': slant - 25},
+                '+25': {'slant': slant + 25},
+                '+45': {'slant': slant + 45}
+            }
+            self.build_counterfactual('do(slant=+x)', *vals, conditions=conditions)
 
-            measured_thickness, measured_slant = self.measure_image(counter.cpu())
-            self.logger.experiment.add_scalar(
-                'counter_slant (+20)/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar(
-                'counter_slant (+20)/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
-
-            counter, _, sampled_thickness, sampled_slant = self.pyro_model.counterfactual(
-                x, thickness, slant, data={'slant': slant - 20}, num_particles=self.hparams.num_sample_particles)
-            self.log_img_grid('counter_slant (-20)', torch.cat([x, counter], 0))
-
-            measured_thickness, measured_slant = self.measure_image(counter.cpu())
-            self.logger.experiment.add_scalar(
-                'counter_slant (-20)/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar(
-                'counter_slant (-20)/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+            conditions = {
+                '-45': {'slant': torch.zeros_like(slant) - 45},
+                '-25': {'slant': torch.zeros_like(slant) - 25},
+                '0': {'slant': torch.zeros_like(slant)},
+                '+25': {'slant': torch.zeros_like(slant) + 25},
+                '+45': {'slant': torch.zeros_like(slant) + 45}
+            }
+            self.build_counterfactual('do(slant=x)', *vals, conditions=conditions, absolute='slant')
