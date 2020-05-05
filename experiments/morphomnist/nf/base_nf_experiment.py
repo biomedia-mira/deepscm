@@ -205,10 +205,6 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
         self.log_kdes(f'{tag}_measured', measured_kdes, save_img=True)
 
     def sample_images(self):
-        if self.current_epoch < 10:
-            pass
-            # return
-
         with torch.no_grad():
             samples, sampled_thickness, sampled_slant = self.pyro_model.sample(128)
             self.log_img_grid('samples', samples.data[:8])
