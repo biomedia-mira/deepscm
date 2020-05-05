@@ -7,6 +7,8 @@ from torch.distributions import Independent
 
 import torch
 
+import numpy as np
+
 from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
 from pyro.distributions.transforms import ComposeTransform
@@ -239,7 +241,7 @@ class SVIExperiment(BaseCovariateExperiment):
 
         loss = self.svi.step(x, thickness, slant)
 
-        if torch.isnan(loss):
+        if np.isnan(loss):
             self.logger.experiment.add_text('nan', f'nand at {self.current_epoch}')
             raise ValueError('loss went to nan')
 
