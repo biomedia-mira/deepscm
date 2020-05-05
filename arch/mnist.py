@@ -119,7 +119,7 @@ class BasicFlowConvNet(nn.Module):
         # and then transpose back
 
         if not ((self.context_dims is None) == (context is None)):
-            raise ValueError(f'Given context does not match context dims: context: {context} and context_dims:{self.context_dims}')
+            raise ValueError('Given context does not match context dims: context: {} and context_dims:{}'.format(context, self.context_dims))
 
         *batch_dims, h, w, c = inputs.size()
         num_batch = len(batch_dims)
