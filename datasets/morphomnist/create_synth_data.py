@@ -11,7 +11,7 @@ from datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
 from datasets.morphomnist.transforms import SetThickness, SetSlant, ImageMorphology
 
 
-def model(n_samples=None):
+def model_(n_samples=None):
     with pyro.plate('observations', n_samples):
         thickness = pyro.sample('thickness', Gamma(10., 5.))
 
@@ -21,9 +21,19 @@ def model(n_samples=None):
     return slant, thickness
 
 
+def model(n_samples=None):
+    with pyro.plate('observations', n_samples):
+        thickness = pyro.sample('thickness', Gamma(10., 5.))
+
+        loc = (thickness - 2.5) * 20
+        slant = pyro.sample('slant', Normal(loc, 1.))
+
+    return slant, thickness
+
+
 def gen_dataset(args, train=True):
     pyro.clear_param_store()
-    images, labels, _ = load_morphomnist_like(args.data_dir, train=True)
+    images, labels, _ = load_morphomnist_like(args.data_dir, train=train)
     mask = (labels == args.digit_class)
     images = images[mask]
     labels = labels[mask]
@@ -47,9 +57,9 @@ def gen_dataset(args, train=True):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data-dir', type=str, default='/vol/biomedic/users/dc315/mnist/original/', help = "Path to MNIST (default: %(default)s)")
-    parser.add_argument('-o', '--out-dir', type=str, help = "Path to store new dataset")
-    parser.add_argument('-d', '--digit-class', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help = "digit class to select")
+    parser.add_argument('--data-dir', type=str, default='/vol/biomedic/users/dc315/mnist/original/', help="Path to MNIST (default: %(default)s)")
+    parser.add_argument('-o', '--out-dir', type=str, help="Path to store new dataset")
+    parser.add_argument('-d', '--digit-class', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="digit class to select")
 
     args = parser.parse_args()
 
