@@ -1,13 +1,13 @@
 import pyro
 
 from pyro.infer import SVI, TraceGraph_ELBO
-from pyro.nn import PyroModule, pyro_method
+from pyro.nn import pyro_method
 from pyro.optim import Adam
 from torch.distributions import Independent
 
 import torch
 
-from experiments.morphomnist.base_experiment import BaseCovariateExperiment
+from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
 from pyro.distributions.transforms import ComposeTransform
 
@@ -30,25 +30,30 @@ class CustomELBO(TraceGraph_ELBO):
         return model_trace, guide_trace
 
 
-class BaseSEM(PyroModule):
-    def __init__(self):
-        super().__init__()
+class BaseVISEM(BaseSEM):
+    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5, **kwargs):
+        super().__init__(**kwargs)
 
-    @pyro_method
-    def pgm_model(self):
-        raise NotImplementedError()
+        self.hidden_dim = hidden_dim
+        self.latent_dim = latent_dim
+        self.logstd_init = logstd_init
+        # TODO: This could be handled by passing a product distribution?
 
-    @pyro_method
-    def model(self):
-        raise NotImplementedError()
+        # priors
+        self.register_buffer('e_t_loc', torch.zeros([1, ], requires_grad=False))
+        self.register_buffer('e_t_scale', torch.ones([1, ], requires_grad=False))
 
-    @pyro_method
-    def pgm_scm(self):
-        raise NotImplementedError()
+        self.register_buffer('e_s_loc', torch.zeros([1, ], requires_grad=False))
+        self.register_buffer('e_s_scale', torch.ones([1, ], requires_grad=False))
 
-    @pyro_method
-    def scm(self):
-        raise NotImplementedError()
+        self.register_buffer('e_z_loc', torch.zeros([latent_dim, ], requires_grad=False))
+        self.register_buffer('e_z_scale', torch.ones([latent_dim, ], requires_grad=False))
+
+        self.register_buffer('e_x_loc', torch.zeros([1, 28, 28], requires_grad=False))
+        self.register_buffer('e_x_scale', torch.ones([1, 28, 28], requires_grad=False))
+
+    def _get_preprocess_transforms(self):
+        return super()._get_preprocess_transforms().inv
 
     @pyro_method
     def guide(self, x, thickness, slant):
@@ -64,34 +69,8 @@ class BaseSEM(PyroModule):
             pyro.condition(self.model, data={'x': x, 'thickness': thickness, 'slant': slant})()
 
     @pyro_method
-    def sample(self, n_samples=1):
-        with pyro.plate('observations', n_samples):
-            x, z, thickness, slant = self.model()
-
-        return x, z, thickness, slant
-
-    @pyro_method
-    def sample_scm(self, n_samples=1):
-        with pyro.plate('observations', n_samples):
-            x, z, thickness, slant = self.scm()
-
-        return x, z, thickness, slant
-
-    @pyro_method
-    def infer_e_t(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    @pyro_method
-    def infer_e_s(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    @pyro_method
     def infer_z(self, *args, **kwargs):
         return self.guide(*args, **kwargs)
-
-    @pyro_method
-    def infer_e_x(self, *args, **kwargs):
-        raise NotImplementedError()
 
     @pyro_method
     def infer_exogeneous(self, x, z, thickness, slant):
@@ -99,22 +78,23 @@ class BaseSEM(PyroModule):
         cond_sample = pyro.condition(self.sample, data={'x': x, 'z': z, 'thickness': thickness, 'slant': slant})
         cond_trace = pyro.poutine.trace(cond_sample).get_trace(x.shape[0])
 
-        output = []
-        for node in ['x', 'thickness', 'slant']:
+        output = {}
+        for (node, short) in [('thickness', 'e_t'), ('slant', 'e_s'), ('x', 'e_x')]:
             fn = cond_trace.nodes[node]['fn']
             if isinstance(fn, Independent):
                 fn = fn.base_dist
-            output.append(ComposeTransform(fn.transforms).inv(cond_trace.nodes[node]['value']))
+            output[short] = ComposeTransform(fn.transforms).inv(cond_trace.nodes[node]['value'])
 
-        return tuple(output)
+        return output
 
     @pyro_method
     def infer(self, x, thickness, slant):
         z = self.infer_z(x, thickness, slant)
 
-        e_x, e_t, e_s = self.infer_exogeneous(x, z, thickness, slant)
+        exogeneous = self.infer_exogeneous(x, z, thickness, slant)
+        exogeneous['z'] = z
 
-        return e_t, e_s, z, e_x
+        return exogeneous
 
     @pyro_method
     def reconstruct(self, x, thickness, slant, num_particles=1):
@@ -135,13 +115,24 @@ class BaseSEM(PyroModule):
         for _ in range(num_particles):
             z = pyro.sample('z', z_dist)
 
-            e_x, e_t, e_s = self.infer_exogeneous(x, z, thickness, slant)
-            counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data={'e_x': e_x, 'e_t': e_t, 'e_s': e_s, 'z': z}), data=data)(x.shape[0])
+            exogeneous = self.infer_exogeneous(x, z, thickness, slant)
+            exogeneous['z'] = z
+            counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data=exogeneous), data=data)(x.shape[0])
             counterfactuals += [counter]
         return (torch.stack(c).mean(0) for c in zip(*counterfactuals))
 
+    @classmethod
+    def add_arguments(cls, parser):
+        parser = super().add_arguments(parser)
 
-class BaseSEMExperiment(BaseCovariateExperiment):
+        parser.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (default: %(default)s)")
+        parser.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (default: %(default)s)")
+        parser.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (default: %(default)s)")
+
+        return parser
+
+
+class SVIExperiment(BaseCovariateExperiment):
     def __init__(self, hparams, pyro_model):
         super().__init__(hparams, pyro_model)
 
@@ -149,21 +140,66 @@ class BaseSEMExperiment(BaseCovariateExperiment):
 
         self._build_svi()
 
-    def log_img_grid(self, tag, imgs, normalize=True, save_img=True, **kwargs):
-        super().log_img_grid(tag, imgs, normalize, save_img, **kwargs)
-
     def _build_svi(self, loss=None):
         def per_param_callable(module_name, param_name):
+            params = {'eps': 1e-5, 'amsgrad': self.hparams.use_amsgrad, 'weight_decay': self.hparams.l2}
             if module_name == 's_flow_components' or module_name == 't_flow_components':
-                return {"lr": self.hparams.pgm_lr}
+                params['lr'] = self.hparams.pgm_lr
+                return params
             else:
-                return {"lr": self.hparams.lr}
+                params['lr'] = self.hparams.lr
+                return params
 
         if loss is None:
             loss = self.svi_loss
 
         self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
         self.svi.loss_class = loss
+
+    def print_trace_updates(self, batch):
+        print('Traces:\n' + ('#' * 10))
+
+        x, thickness, slant = self.prep_batch(batch)
+
+        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(x, thickness, slant)
+        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(x, thickness, slant)
+
+        guide_trace = pyro.poutine.util.prune_subsample_sites(guide_trace)
+        model_trace = pyro.poutine.util.prune_subsample_sites(model_trace)
+
+        model_trace.compute_log_prob()
+        guide_trace.compute_score_parts()
+
+        print(f'model: {model_trace.nodes.keys()}')
+        for name, site in model_trace.nodes.items():
+            if site["type"] == "sample":
+                fn = site['fn']
+                if isinstance(fn, Independent):
+                    fn = fn.base_dist
+                print(f'{name}: {fn} - {fn.support}')
+                log_prob_sum = site["log_prob_sum"]
+                is_obs = site["is_observed"]
+                print(f'model - log p({name}) = {log_prob_sum} | obs={is_obs}')
+                if torch.isnan(log_prob_sum):
+                    value = site['value'][0]
+                    conc0 = fn.concentration0
+                    conc1 = fn.concentration1
+
+                    print(f'got:\n{value}\n{conc0}\n{conc1}')
+
+                    raise Exception()
+
+        print(f'guide: {guide_trace.nodes.keys()}')
+
+        for name, site in guide_trace.nodes.items():
+            if site["type"] == "sample":
+                fn = site['fn']
+                if isinstance(fn, Independent):
+                    fn = fn.base_dist
+                print(f'{name}: {fn} - {fn.support}')
+                entropy = site["score_parts"].entropy_term.sum()
+                is_obs = site["is_observed"]
+                print(f'guide - log q({name}) = {entropy} | obs={is_obs}')
 
     def get_trace_metrics(self, batch):
         metrics = {}
@@ -181,6 +217,19 @@ class BaseSEMExperiment(BaseCovariateExperiment):
 
         return metrics
 
+    def prep_batch(self, batch):
+        x = batch['image']
+        thickness = batch['thickness'].unsqueeze(1).float()
+        slant = batch['slant'].unsqueeze(1).float()
+
+        x = x.float()
+
+        x += torch.rand_like(x)
+
+        x = x.unsqueeze(1)
+
+        return x, thickness, slant
+
     def training_step(self, batch, batch_idx):
         x, thickness, slant = self.prep_batch(batch)
 
@@ -189,6 +238,10 @@ class BaseSEMExperiment(BaseCovariateExperiment):
             self.print_trace_updates(batch)
 
         loss = self.svi.step(x, thickness, slant)
+
+        if torch.isnan(loss):
+            self.logger.experiment.add_text('nan', f'nand at {self.current_epoch}')
+            raise ValueError('loss went to nan')
 
         metrics = self.get_trace_metrics(batch)
 
@@ -214,6 +267,9 @@ class BaseSEMExperiment(BaseCovariateExperiment):
         metrics = self.get_trace_metrics(batch)
 
         return {'loss': loss, **metrics}
+
+    def log_img_grid(self, tag, imgs, normalize=True, save_img=True, **kwargs):
+        super().log_img_grid(tag, imgs, normalize, save_img, **kwargs)
 
     def build_reconstruction(self, x, thickness, slant, tag='reconstruction'):
         recon = self.pyro_model.reconstruct(x, thickness, slant, num_particles=self.hparams.num_sample_particles)
@@ -280,11 +336,11 @@ class BaseSEMExperiment(BaseCovariateExperiment):
             }
             self.log_kdes('sample_kde', kde_data, save_img=True)
 
-            e_t, e_s, z, e_x = self.pyro_model.infer(x, thickness, slant)
+            exogeneous = self.pyro_model.infer(x, thickness, slant)
 
-            self.logger.experiment.add_histogram('e_t', e_t, self.current_epoch)
-            self.logger.experiment.add_histogram('e_s', e_s, self.current_epoch)
-            self.logger.experiment.add_histogram('e_x', e_x, self.current_epoch)
+            self.logger.experiment.add_histogram('e_t', exogeneous['e_t'], self.current_epoch)
+            self.logger.experiment.add_histogram('e_s', exogeneous['e_s'], self.current_epoch)
+            self.logger.experiment.add_histogram('e_x', exogeneous['e_x'], self.current_epoch)
             self.logger.experiment.add_histogram('z', z, self.current_epoch)
 
             x = x[:8]
@@ -327,3 +383,15 @@ class BaseSEMExperiment(BaseCovariateExperiment):
                 '+45': {'slant': torch.zeros_like(slant) + 45}
             }
             self.build_counterfactual('do(slant=x)', *vals, conditions=conditions, absolute='slant')
+
+    @classmethod
+    def add_arguments(cls, parser):
+        parser = super().add_arguments(parser)
+
+        parser.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (default: %(default)s)")
+        parser.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (default: %(default)s)")
+
+        return parser
+
+
+EXPERIMENT_REGISTRY[SVIExperiment.__name__] = SVIExperiment

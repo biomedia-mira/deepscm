@@ -1,11 +1,11 @@
 import pyro
 
-from datasets.morphomnist import MorphoMNISTLike
+from pyro.nn import PyroModule, pyro_method
 
-from torch.distributions import Independent
+from datasets.morphomnist import MorphoMNISTLike
+from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, AffineTransform
+
 import torchvision.utils
-from pyro.infer import SVI, TraceGraph_ELBO
-from pyro.optim import Adam
 from torch.utils.data import DataLoader, random_split
 from experiments import PyroExperiment
 import torch
@@ -17,13 +17,37 @@ import matplotlib.pyplot as plt
 from morphomnist import measure
 import os
 
+
 EXPERIMENT_REGISTRY = {}
 MODEL_REGISTRY = {}
 
 
 class BaseSEM(PyroModule):
-    def __init__(self):
+    def __init__(self, preprocessing: str = 'realnvp'):
         super().__init__()
+
+        self.preprocessing = preprocessing
+
+    def _get_preprocess_transforms(self):
+        alpha = 0.05
+        num_bits = 8
+
+        if self.preprocessing == 'glow':
+            # Map to [-0.5,0.5]
+            a1 = AffineTransform(-0.5, (1. / 2 ** num_bits))
+            preprocess_transform = ComposeTransform([a1])
+        elif self.preprocessing == 'realnvp':
+            # Map to [0,1]
+            a1 = AffineTransform(0., (1. / 2 ** num_bits))
+
+            # Map into unconstrained space as done in RealNVP
+            a2 = AffineTransform(alpha, (1 - alpha))
+
+            s = SigmoidTransform()
+
+            preprocess_transform = ComposeTransform([a1, a2, s.inv])
+
+        return preprocess_transform
 
     @pyro_method
     def pgm_model(self):
@@ -76,7 +100,8 @@ class BaseSEM(PyroModule):
         raise NotImplementedError()
 
     @classmethod
-    def add_arguments(parser):
+    def add_arguments(cls, parser):
+        parser.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing (default: %(default)s)", choices=['realnvp', 'glow'])
 
         return parser
 
@@ -95,10 +120,16 @@ class BaseCovariateExperiment(PyroExperiment):
         self.test_batch_size = hparams.test_batch_size
 
         if hparams.validate:
-            pyro.enable_validation()
+            import random
 
-    def _build_svi(self, loss=TraceGraph_ELBO()):
-        self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam({'lr': self.hparams.lr}), loss)
+            torch.manual_seed(0)
+            np.random.seed(0)
+            random.seed(0)
+
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            torch.autograd.set_detect_anomaly(self.hparams.validate)
+            pyro.enable_validation()
 
     def measure_image(self, x, normalize=True, threshold=0.3):
         imgs = x.detach().cpu().numpy()[:, 0]
@@ -120,7 +151,7 @@ class BaseCovariateExperiment(PyroExperiment):
         self.device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
         thicknesses = 1. + torch.arange(3, dtype=torch.float, device=self.device)
         self.thickness_range = thicknesses.repeat(3).unsqueeze(1)
-        slants = 10 * (torch.arange(3, dtype=torch.float, device=self.device) - 1)
+        slants = 25 * (torch.arange(3, dtype=torch.float, device=self.device) - 1)
         self.slant_range = slants.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.zeros([9, self.hparams.latent_dim], device=self.device, dtype=torch.float)
 
@@ -141,84 +172,14 @@ class BaseCovariateExperiment(PyroExperiment):
         self.test_loader = DataLoader(self.mnist_test, batch_size=self.test_batch_size, shuffle=False)
         return self.test_loader
 
-    def print_trace_updates(self, batch):
-        print('Traces:\n' + ('#' * 10))
-
-        x, thickness, slant = self.prep_batch(batch)
-
-        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(x, thickness, slant)
-        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(x, thickness, slant)
-
-        guide_trace = pyro.poutine.util.prune_subsample_sites(guide_trace)
-        model_trace = pyro.poutine.util.prune_subsample_sites(model_trace)
-
-        model_trace.compute_log_prob()
-        guide_trace.compute_score_parts()
-
-        print(f'model: {model_trace.nodes.keys()}')
-        for name, site in model_trace.nodes.items():
-            if site["type"] == "sample":
-                fn = site['fn']
-                if isinstance(fn, Independent):
-                    fn = fn.base_dist
-                print(f'{name}: {fn} - {fn.support}')
-                log_prob_sum = site["log_prob_sum"]
-                is_obs = site["is_observed"]
-                print(f'model - log p({name}) = {log_prob_sum} | obs={is_obs}')
-                if torch.isnan(log_prob_sum):
-                    value = site['value'][0]
-                    conc0 = fn.concentration0
-                    conc1 = fn.concentration1
-
-                    print(f'got:\n{value}\n{conc0}\n{conc1}')
-
-                    raise Exception()
-
-        print(f'guide: {guide_trace.nodes.keys()}')
-
-        for name, site in guide_trace.nodes.items():
-            if site["type"] == "sample":
-                fn = site['fn']
-                if isinstance(fn, Independent):
-                    fn = fn.base_dist
-                print(f'{name}: {fn} - {fn.support}')
-                entropy = site["score_parts"].entropy_term.sum()
-                is_obs = site["is_observed"]
-                print(f'guide - log q({name}) = {entropy} | obs={is_obs}')
-
     def prep_batch(self, batch):
-        x = batch['image']
-        thickness = batch['thickness'].unsqueeze(1).float()
-        slant = batch['slant'].unsqueeze(1).float()
-
-        x = x.float()
-        # dequantise
-        x = (x + torch.rand_like(x)) / 256.
-        # constrain to [0.05, 0.95]
-        x = ((((x * 2) - 1) * 0.9) + 1) / 2.
-
-        x = x.unsqueeze(1)
-
-        return x, thickness, slant
+        raise NotImplementedError()
 
     def training_step(self, batch, batch_idx):
-        x, thickness, slant = self.prep_batch(batch)
-
-        if self.hparams.validate:
-            self.print_trace_updates(batch)
-
-        loss = self.svi.step(x, thickness, slant)
-
-        tensorboard_logs = {'train/loss': loss}
-
-        return {'loss': torch.Tensor([loss]), 'log': tensorboard_logs}
+        raise NotImplementedError()
 
     def validation_step(self, batch, batch_idx):
-        x, thickness, slant = self.prep_batch(batch)
-
-        loss = self.svi.evaluate_loss(x, thickness, slant)
-
-        return {'val_loss': loss}
+        raise NotImplementedError()
 
     def validation_epoch_end(self, outputs):
         num_items = len(outputs)
@@ -231,12 +192,6 @@ class BaseCovariateExperiment(PyroExperiment):
             self.sample_images()
 
         return {'val_loss': metrics['val/loss'], 'log': metrics}
-
-    def test_step(self, batch, batch_idx):
-        x, thickness, slant = self.prep_batch(batch)
-
-        loss = self.svi.evaluate_loss(x, thickness, slant)
-        return {'test_loss': loss}
 
     def test_epoch_end(self, outputs):
         num_items = len(outputs)
@@ -292,97 +247,18 @@ class BaseCovariateExperiment(PyroExperiment):
         self.logger.experiment.add_figure(tag, fig, self.current_epoch)
 
     def sample_images(self):
-        with torch.no_grad():
-            samples, _, thickness, slant = self.pyro_model.sample(8)
-            self.log_img_grid('samples', samples.data)
-
-            measured_thickness, measured_slant = self.measure_image(samples)
-            self.logger.experiment.add_scalar('samples/thickness_mae', torch.mean(torch.abs(thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar('samples/slant_mae', torch.mean(torch.abs(slant.cpu() - measured_slant)), self.current_epoch)
-
-            with pyro.plate('observations', 9):
-                samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'slant': self.slant_range})(None)
-            self.log_img_grid('cond_samples', samples.data, nrow=3)
-
-            x, thickness, slant = self.prep_batch(self.get_batch(self.val_loader))
-            x = x[:8]
-            thickness = thickness[:8]
-            slant = slant[:8]
-
-            self.log_img_grid('input', x.data)
-            self.log_img_grid('input_binary', (x > 0.1).float())
-
-            recons = self.pyro_model.reconstruct(x)
-            self.log_img_grid('reconstruction', torch.cat([x, recons.data], 0))
-            self.log_img_grid('reconstruction_binary', torch.cat([(x > 0.2).float(), (recons.data > 0.2).float()], 0))
-
-            z, *_ = self.pyro_model.encode(x)
-            cond_recons, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness, 'slant': slant})(8)
-            self.log_img_grid('cond_reconstruction', torch.cat([x, cond_recons.data], 0))
-
-            counter, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness + 3, 'slant': slant})(8)
-            self.log_img_grid('counter_thickness', torch.cat([x, counter.data], 0),)
-
-            counter, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness, 'slant': slant + 10})(8)
-            self.log_img_grid('counter_slant', torch.cat([x, counter.data], 0),)
+        raise NotImplementedError()
 
     @classmethod
-    def add_arguments(parser):
+    def add_arguments(cls, parser):
         parser.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
         parser.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
         parser.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
         parser.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
         parser.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
         parser.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
-        parser.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (default: %(default)s)")
+        parser.add_argument('--pgm_lr', default=1e-1, type=float, help="lr of pgm (default: %(default)s)")
+        parser.add_argument('--l2', default=0., type=float, help="weight decay (default: %(default)s)")
+        parser.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad? (default: %(default)s)")
 
         return parser
-
-
-if __name__ == '__main__':
-    from pytorch_lightning import Trainer
-    import argparse
-
-    exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    exp_parser.add_argument('--experiment', '-e', help='which experiment to load')
-    exp_parser.add_argument('--model', '-m', help='which model to load')
-
-    exp_args, other_args = exp_parser.parse_known_args()
-
-    exp_class = EXPERIMENT_REGISTRY[exp_args.experiment]
-    model_class = MODEL_REGISTRY[exp_args.model]
-
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser = Trainer.add_argparse_args(parser)
-    parser.set_defaults(logger=True, checkpoint_callback=True)
-
-    parser._action_groups[1].title = 'lightning_options'
-
-    experiment_group = parser.add_argument_group('experiment')
-    exp_class.add_arguments(experiment_group)
-
-    model_group = parser.add_argument_group('model')
-    model_class.add_arguments(model_group)
-
-    args = parser.parse_args(other_args)
-
-    # TODO: push to lightning
-    args.gradient_clip_val = float(args.gradient_clip_val)
-
-    groups = {}
-    for group in parser._action_groups:
-        group_dict = {a.dest: getattr(args, a.dest, None) for a in group._group_actions}
-        groups[group.title] = argparse.Namespace(**group_dict)
-
-    lightning_args = groups['lightning_options']
-    hparams = groups['experiment']
-    model_params = groups['model']
-
-    hparams.model_params = model_params
-
-    trainer = Trainer.from_argparse_args(lightning_args)
-
-    model = model_class(**model_params)
-    experiment = exp_class(hparams, model)
-
-    trainer.fit(experiment)
