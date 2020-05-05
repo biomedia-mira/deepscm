@@ -22,15 +22,17 @@ from pyro.optim import Adam
 import torchvision
 import seaborn as sns
 import matplotlib.pyplot as plt
+import numpy as np
 
 from experiments.morphomnist.sem_vi.base_sem_experiment import BaseSEM, BaseSEMExperiment
 
 
 class SEMVAE(BaseSEM):
-    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5):
+    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5, use_rad: bool = False):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
+        self.use_rad = use_rad
         # TODO: This could be handled by passing a product distribution?
 
         # priors
@@ -53,12 +55,15 @@ class SEMVAE(BaseSEM):
         self.decoder_logstd = torch.nn.Parameter(torch.ones([]) * logstd_init)
         # Flow for modelling t Gamma
         self.t_flow_components = ComposeTransformModule([Spline(1)])
-        self.t_flow_transforms = ComposeTransform([self.t_flow_components, ExpTransform()])
+        self.t_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.t_flow_constraint_transforms = ComposeTransform([self.t_flow_lognorm, ExpTransform()])
+        self.t_flow_transforms = ComposeTransform([self.t_flow_components, self.t_flow_constraint_transforms])
 
         # affine flow for s normal
         slant_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
         self.s_flow_components = ConditionalAffineTransform(context_nn=slant_net, event_dim=0)
-        self.s_flow_transforms = [self.s_flow_components]
+        self.s_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.s_flow_transforms = [self.s_flow_components, self.s_flow_norm]
 
         # encoder parts
         self.encoder = Encoder(hidden_dim)
@@ -73,11 +78,12 @@ class SEMVAE(BaseSEM):
         t_dist = TransformedDistribution(t_bd, self.t_flow_transforms)
 
         thickness = pyro.sample('thickness', t_dist.to_event(1))
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
         # pseudo call to t_flow_transforms to register with pyro
         _ = self.t_flow_components
 
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
-        s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness)
+        s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_)
 
         slant = pyro.sample('slant', s_dist.to_event(1))
         # pseudo call to s_flow_transforms to register with pyro
@@ -89,9 +95,12 @@ class SEMVAE(BaseSEM):
     def model(self):
         thickness, slant = self.pgm_model()
 
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+        slant_ = self.s_flow_norm.inv(slant)
+
         z = pyro.sample('z', Normal(self.e_z_loc, self.e_z_scale).to_event(1))
 
-        latent = torch.cat([z, thickness, slant], 1)
+        latent = torch.cat([z, thickness_, slant_], 1)
 
         x_loc = self.decoder_mean(self.decoder(latent))
         x_scale = torch.exp(self.decoder_logstd)
@@ -110,11 +119,12 @@ class SEMVAE(BaseSEM):
 
         thickness = self.t_flow_transforms(e_t)
         thickness = pyro.deterministic('thickness', thickness)
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
 
         s_bd = Normal(self.e_s_loc, self.e_s_scale).to_event(1)
         e_s = pyro.sample('e_s', s_bd)
 
-        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness).transforms)
+        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_).transforms)
 
         slant = cond_s_transforms(e_s)
         slant = pyro.deterministic('slant', slant)
@@ -125,9 +135,12 @@ class SEMVAE(BaseSEM):
     def scm(self):
         thickness, slant = self.pgm_scm()
 
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+        slant_ = self.s_flow_norm.inv(slant)
+
         z = pyro.sample('z', Normal(self.e_z_loc, self.e_z_scale).to_event(1))
 
-        latent = torch.cat([z, thickness, slant], 1)
+        latent = torch.cat([z, thickness_, slant_], 1)
 
         x_loc = self.decoder_mean(self.decoder(latent))
         x_scale = torch.exp(self.decoder_logstd)
@@ -144,7 +157,10 @@ class SEMVAE(BaseSEM):
         with pyro.plate('observations', x.shape[0]):
             hidden = self.encoder(x)
 
-            hidden = torch.cat([hidden, thickness, slant], 1)
+            thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+            slant_ = self.s_flow_norm.inv(slant)
+
+            hidden = torch.cat([hidden, thickness_, slant_], 1)
             latent_dist = self.latent_encoder.predict(hidden)
 
             z = pyro.sample('z', latent_dist)
@@ -173,17 +189,19 @@ if __name__ == '__main__':
     parser._action_groups[1].title = 'lightning_options'
 
     experiment_group = parser.add_argument_group('experiment')
-    experiment_group.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (defaults to 10)")
-    experiment_group.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (defaults to 100)")
-    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (defaults to 1e-4)")
-    experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (defaults to 5e-2)")
-    experiment_group.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (defaults to -5)")
-    experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (defaults to False)")
-    experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (defaults to 32)")
-    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
-    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
-    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (defaults to 10)")
-    experiment_group.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (defaults to 4)")
+    experiment_group.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (default: %(default)s)")
+    experiment_group.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (default: %(default)s)")
+    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
+    experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (default: %(default)s)")
+    experiment_group.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (default: %(default)s)")
+    experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
+    experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (default: %(default)s)")
+    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
+    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
+    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
+    experiment_group.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (default: %(default)s)")
+    experiment_group.add_argument('--use_rad', default=False, action='store_true', help="whether to use rad instead of deg for decoder (default: %(default)s)")
+    experiment_group.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
 
     args = parser.parse_args()
 
@@ -200,6 +218,7 @@ if __name__ == '__main__':
 
     trainer = Trainer.from_argparse_args(lightning_args)
 
-    experiment = BaseSEMExperiment(hparams, SEMVAE(hidden_dim=hparams.hidden_dim, latent_dim=hparams.latent_dim, logstd_init=hparams.logstd_init))
+    model = SEMVAE(hidden_dim=hparams.hidden_dim, latent_dim=hparams.latent_dim, logstd_init=hparams.logstd_init, use_rad=hparams.use_rad)
+    experiment = BaseSEMExperiment(hparams, model)
 
     trainer.fit(experiment)

@@ -53,11 +53,14 @@ class IndependentVAE(BaseSEM):
         self.decoder_logstd = torch.nn.Parameter(torch.ones([]) * logstd_init)
         # Flow for modelling t Gamma
         self.t_flow_components = ComposeTransformModule([Spline(1)])
-        self.t_flow_transforms = ComposeTransform([self.t_flow_components, ExpTransform()])
+        self.t_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.t_flow_constraint_transforms = ComposeTransform([self.t_flow_lognorm, ExpTransform()])
+        self.t_flow_transforms = ComposeTransform([self.t_flow_components, self.t_flow_constraint_transforms])
 
         # affine flow for s normal
         self.s_flow_components = ComposeTransformModule([LearnedAffineTransform(), Spline(1)])
-        self.s_flow_transforms = [self.s_flow_components]
+        self.s_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.s_flow_transforms = [self.s_flow_components, self.s_flow_norm]
 
         # encoder parts
         self.encoder = Encoder(hidden_dim)
@@ -164,17 +167,18 @@ if __name__ == '__main__':
     parser._action_groups[1].title = 'lightning_options'
 
     experiment_group = parser.add_argument_group('experiment')
-    experiment_group.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (defaults to 10)")
-    experiment_group.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (defaults to 100)")
-    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (defaults to 1e-4)")
-    experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (defaults to 5e-2)")
-    experiment_group.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (defaults to -5)")
-    experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (defaults to False)")
-    experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (defaults to 32)")
-    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
-    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
-    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (defaults to 10)")
-    experiment_group.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (defaults to 4)")
+    experiment_group.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (default: %(default)s)")
+    experiment_group.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (default: %(default)s)")
+    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
+    experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (default: %(default)s)")
+    experiment_group.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (default: %(default)s)")
+    experiment_group.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
+    experiment_group.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (default: %(default)s)")
+    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
+    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
+    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
+    experiment_group.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (default: %(default)s)")
+    experiment_group.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
 
     args = parser.parse_args()
 
