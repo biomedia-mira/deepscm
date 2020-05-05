@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt
 
 class FlowModel(PyroModule):
     def __init__(self, num_scales: int = 4, flows_per_scale: int = 2, preprocessing: str = 'realnvp', hidden_channels: int = 256,
-                 use_actnorm: bool = False, use_affine_ex: bool = True):
+                 use_actnorm: bool = False, use_affine_ex: bool = True, use_rad: bool = False):
         super().__init__()
         self.num_scales = num_scales
         self.flows_per_scale = flows_per_scale
@@ -41,6 +41,7 @@ class FlowModel(PyroModule):
         self.hidden_channels = hidden_channels
         self.use_actnorm = use_actnorm
         self.use_affine_ex = use_affine_ex
+        self.use_rad = use_rad
 
         # TODO: This could be handled by passing a product distribution?
 
@@ -58,12 +59,15 @@ class FlowModel(PyroModule):
         # TODO:
         # Flow for modelling t Gamma
         self.t_flow_components = ComposeTransformModule([Spline(1)])
-        self.t_flow_transforms = ComposeTransform([self.t_flow_components, ExpTransform()])
+        self.t_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.t_flow_constraint_transforms = ComposeTransform([self.t_flow_lognorm, ExpTransform()])
+        self.t_flow_transforms = ComposeTransform([self.t_flow_components, self.t_flow_constraint_transforms])
 
         # affine flow for s normal
         slant_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
         self.s_flow_components = ConditionalAffineTransform(context_nn=slant_net, event_dim=0)
-        self.s_flow_transforms = [self.s_flow_components]
+        self.s_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.s_flow_transforms = [self.s_flow_components, self.s_flow_norm]
         # build flow as s_affine_w * t * e_s + b -> depends on t though
 
         # realnvp or so for x
@@ -95,7 +99,7 @@ class FlowModel(PyroModule):
         self.x_transforms += preprocess_transform
 
         c = 1
-        for scale in range(self.num_scales):
+        for _ in range(self.num_scales):
             self.x_transforms.append(SqueezeTransform())
             c *= 4
 
@@ -140,12 +144,16 @@ class FlowModel(PyroModule):
 
         thickness = pyro.sample('thickness', t_dist.to_event(1))
 
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
-        s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness)
+        s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_)
 
         slant = pyro.sample('slant', s_dist.to_event(1))
 
-        context = torch.cat([thickness / 3., slant / 30.], 1)
+        slant_ = self.s_flow_norm.inv(slant)
+
+        context = torch.cat([thickness_, slant_], 1)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms).inv
@@ -162,16 +170,18 @@ class FlowModel(PyroModule):
 
         thickness = self.t_flow_transforms(e_t)
         thickness = pyro.deterministic('thickness', thickness)
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
 
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
         e_s = pyro.sample('e_s', s_bd)
 
-        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness).transforms)
+        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_).transforms)
 
         slant = cond_s_transforms(e_s)
         slant = pyro.deterministic('slant', slant)
+        slant_ = self.s_flow_norm.inv(slant)
 
-        context = torch.cat([thickness / 3., slant / 30.], 1)
+        context = torch.cat([thickness_, slant_], 1)
 
         x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
         e_x = pyro.sample('e_x', x_bd)
@@ -183,26 +193,32 @@ class FlowModel(PyroModule):
         return x, thickness, slant
 
     @pyro_method
-    def infer_e_t(self, t):
-        return self.t_flow_transforms.inv(t)
+    def infer_e_t(self, thickness):
+        return self.t_flow_transforms.inv(thickness)
 
     @pyro_method
-    def infer_e_s(self, t, s):
+    def infer_e_s(self, thickness, slant):
         s_bd = Normal(self.e_s_loc, self.e_s_scale)
-        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(t).transforms)
-        return cond_s_transforms.inv(s)
+
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_).transforms)
+        return cond_s_transforms.inv(slant)
 
     @pyro_method
-    def infer_e_x(self, t, s, x):
+    def infer_e_x(self, thickness, slant, x):
         x_bd = Normal(self.e_x_loc, self.e_x_scale)
-        context = torch.cat([t / 3., s / 30.], 1)
+
+        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
+        slant_ = self.s_flow_norm.inv(slant)
+
+        context = torch.cat([thickness_, slant_], 1)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms)
         return cond_x_transforms(x)
 
-    def infer(self, t, s, x):
-        e_t = self.infer_e_t(t)
-        e_s = self.infer_e_s(t, s)
-        e_x = self.infer_e_x(t, s, x)
+    def infer(self, thickness, slant, x):
+        e_t = self.infer_e_t(thickness)
+        e_s = self.infer_e_s(thickness, slant)
+        e_x = self.infer_e_x(thickness, slant, x)
         return e_t, e_s, e_x
 
     @pyro_method
@@ -219,9 +235,17 @@ class FlowModel(PyroModule):
 
         return x, thickness, slant
 
+    @pyro_method
+    def counterfactual(self, x, thickness, slant, data=None):
+        e_t, e_s, e_x = self.infer(thickness, slant, x)
+
+        counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data={'e_x': e_x, 'e_t': e_t, 'e_s': e_s}), data=data)(x.shape[0])
+        return (*counter,)
+
 
 class CNFExperiment(BaseCovariateExperiment):
     def __init__(self, hparams):
+        hparams.latent_dim = 32 * 32
         pyro_model = FlowModel(
             num_scales=hparams.num_scales, flows_per_scale=hparams.flows_per_scale,
             preprocessing=hparams.preprocessing, hidden_channels=hparams.hidden_channels,
@@ -259,6 +283,11 @@ class CNFExperiment(BaseCovariateExperiment):
 
     def backward(self, *args, **kwargs):
         return super(PyroExperiment, self).backward(*args, **kwargs)
+
+    def prepare_data(self):
+        super().prepare_data()
+
+        self.z_range = self.z_range.reshape((9, 1, 32, 32))
 
     def get_logprobs(self, x, thickness, slant):
         data = {'x': x, 'thickness': thickness, 'slant': slant}
@@ -336,49 +365,62 @@ class CNFExperiment(BaseCovariateExperiment):
 
         return {'loss': loss, **lls, **nats_per_dim}
 
+    def build_counterfactual(self, tag, x, thickness, slant, conditions, absolute=None):
+        imgs = [x]
+        if absolute == 'thickness':
+            sampled_kdes = {'orig': {'slant': slant}}
+        elif absolute == 'slant':
+            sampled_kdes = {'orig': {'thickness': thickness}}
+        else:
+            sampled_kdes = {'orig': {'thickness': thickness, 'slant': slant}}
+        measured_kdes = {'orig': {'thickness': thickness, 'slant': slant}}
+
+        for name, data in conditions.items():
+            counter, sampled_thickness, sampled_slant = self.pyro_model.counterfactual(
+                x, thickness, slant, data=data)
+
+            measured_thickness, measured_slant = self.measure_image(counter.cpu())
+
+            imgs.append(counter)
+            if absolute == 'thickness':
+                sampled_kdes[name] = {'slant': sampled_slant}
+            elif absolute == 'slant':
+                sampled_kdes[name] = {'thickness': sampled_thickness}
+            else:
+                sampled_kdes[name] = {'thickness': sampled_thickness, 'slant': sampled_slant}
+            measured_kdes[name] = {'thickness': measured_thickness, 'slant': measured_slant}
+
+            self.logger.experiment.add_scalar(
+                f'{tag}/{name}/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
+            self.logger.experiment.add_scalar(
+                f'{tag}/{name}/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+
+        self.log_img_grid(tag, torch.cat(imgs, 0))
+        self.log_kdes(f'{tag}_sampled', sampled_kdes, save_img=True)
+        self.log_kdes(f'{tag}_measured', measured_kdes, save_img=True)
+
     def sample_images(self):
         if self.current_epoch < 10:
             return
 
         with torch.no_grad():
             samples, sampled_thickness, sampled_slant = self.pyro_model.sample(128)
-            samples = samples.reshape(-1, 1, 32, 32)
-            grid = torchvision.utils.make_grid(samples.data[:8], normalize=True)
-            self.logger.experiment.add_image('samples', grid, self.current_epoch)
+            self.log_img_grid('samples', samples.data[:8])
 
             measured_thickness, measured_slant = self.measure_image(samples)
             self.logger.experiment.add_scalar('samples/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
             self.logger.experiment.add_scalar('samples/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
 
-            thicknesses = 1. + torch.arange(3, device=samples.device, dtype=torch.float)
-            thicknesses = thicknesses.repeat(3).unsqueeze(1)
-            slants = 10 * (torch.arange(3, device=samples.device, dtype=torch.float) - 1)
-            slants = slants.repeat_interleave(3).unsqueeze(1)
+            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'slant': self.slant_range, 'z': self.z_range})(9)
+            self.log_img_grid('cond_samples', samples.data, nrow=3)
 
-            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': thicknesses, 'slant': slants})(9)
-            samples = samples.reshape(-1, 1, 32, 32)
-            grid = torchvision.utils.make_grid(samples.data, normalize=True, nrow=3)
-            self.logger.experiment.add_image('cond_samples', grid, self.current_epoch)
+            x, thickness, slant = self.prep_batch(self.get_batch(self.val_loader))
 
-            x, thickness, slant = self.prep_batch(next(iter(self.val_loader)))
-
-            fig, ax = plt.subplots(1, 2, figsize=(10, 3))
-            sns.kdeplot(thickness.cpu().numpy().squeeze(), slant.cpu().numpy().squeeze(), ax=ax[0], shade=True, shade_lowest=False)
-            sns.kdeplot(sampled_thickness.cpu().numpy().squeeze(), sampled_slant.cpu().numpy().squeeze(), ax=ax[1], shade=True, shade_lowest=False)
-
-            ax[0].set_title('batch')
-            ax[1].set_title('sampled')
-
-            ax[0].set_xlabel('thickness')
-            ax[1].set_xlabel('thickness')
-
-            ax[0].set_xlabel('slant')
-            ax[1].set_xlabel('slant')
-            self.logger.experiment.add_figure('sample_kde', fig, self.current_epoch)
-
-            x = x.to(samples.device)
-            thickness = thickness.to(samples.device)
-            slant = slant.to(samples.device)
+            kde_data = {
+                'batch': {'thickness': thickness, 'slant': slant},
+                'sampled': {'thickness': sampled_thickness, 'slant': sampled_slant}
+            }
+            self.log_kdes('sample_kde', kde_data, save_img=True)
 
             e_t, e_s, e_x = self.pyro_model.infer(thickness, slant, x)
 
@@ -390,34 +432,40 @@ class CNFExperiment(BaseCovariateExperiment):
             thickness = thickness[:8]
             slant = slant[:8]
 
-            e_t = e_t[:8]
-            e_s = e_s[:8]
-            e_x = e_x[:8]
+            self.log_img_grid('input', x, save_img=True)
 
-            x_ = x.reshape(-1, 1, 32, 32)
+            vals = [x, thickness, slant]
 
-            grid = torchvision.utils.make_grid(x_, normalize=True)
-            self.logger.experiment.add_image('input', grid, self.current_epoch)
+            conditions = {
+                '+1': {'thickness': thickness + 1},
+                '+2': {'thickness': thickness + 2},
+                '+3': {'thickness': thickness + 3}
+            }
+            self.build_counterfactual('do(thickess=+x)', *vals, conditions=conditions)
 
-            data = {'e_t': e_t, 'e_s': e_s, 'e_x': e_x}
+            conditions = {
+                '1': {'thickness': torch.ones_like(thickness)},
+                '2': {'thickness': torch.ones_like(thickness) * 2},
+                '3': {'thickness': torch.ones_like(thickness) * 3}
+            }
+            self.build_counterfactual('do(thickess=x)', *vals, conditions=conditions, absolute='thickness')
 
-            counter, sampled_thickness, sampled_slant = pyro.poutine.do(pyro.condition(self.pyro_model.sample_scm, data=data), data={'thickness': thickness + 2})(8)
-            counter = counter.reshape(-1, 1, 32, 32).cpu().data
-            grid = torchvision.utils.make_grid(torch.cat([x_.cpu(), counter], 0), normalize=True)
-            self.logger.experiment.add_image('counter_thickness', grid, self.current_epoch)
+            conditions = {
+                '-45': {'slant': slant - 45},
+                '-25': {'slant': slant - 25},
+                '+25': {'slant': slant + 25},
+                '+45': {'slant': slant + 45}
+            }
+            self.build_counterfactual('do(slant=+x)', *vals, conditions=conditions)
 
-            measured_thickness, measured_slant = self.measure_image(counter)
-            self.logger.experiment.add_scalar('counter_thickness/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar('counter_thickness/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
-
-            counter, sampled_thickness, sampled_slant = pyro.poutine.do(pyro.condition(self.pyro_model.sample, data=data), data={'slant': slant + 20})(8)
-            counter = counter.reshape(-1, 1, 32, 32).cpu().data
-            grid = torchvision.utils.make_grid(torch.cat([x_.cpu(), counter], 0), normalize=True)
-            self.logger.experiment.add_image('counter_slant', grid, self.current_epoch)
-
-            measured_thickness, measured_slant = self.measure_image(counter)
-            self.logger.experiment.add_scalar('counter_slant/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar('counter_slant/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+            conditions = {
+                '-45': {'slant': torch.zeros_like(slant) - 45},
+                '-25': {'slant': torch.zeros_like(slant) - 25},
+                '0': {'slant': torch.zeros_like(slant)},
+                '+25': {'slant': torch.zeros_like(slant) + 25},
+                '+45': {'slant': torch.zeros_like(slant) + 45}
+            }
+            self.build_counterfactual('do(slant=x)', *vals, conditions=conditions, absolute='slant')
 
 
 if __name__ == '__main__':
@@ -431,19 +479,22 @@ if __name__ == '__main__':
     parser._action_groups[1].title = 'lightning_options'
 
     experiment_group = parser.add_argument_group('experiment')
-    experiment_group.add_argument('--num_scales', default=3, type=int, help="number of scales (defaults to 4)")
-    experiment_group.add_argument('--flows_per_scale', default=5, type=int, help="number of flows per scale (defaults to 2)")
-    experiment_group.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing", choices=['realnvp', 'glow'])
-    experiment_group.add_argument('--hidden_channels', default=256, type=int, help="number of hidden channels in convnet (defaults to 256)")
-    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr for deep part (defaults to 1e-4)")
-    experiment_group.add_argument('--pgm_lr', default=5e-2, type=float, help="lr for pgm (defaults to 5e-2)")
-    experiment_group.add_argument('--l2', default=0., type=float, help="weight decay (defaults to 0.)")
-    experiment_group.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad?")
-    experiment_group.add_argument('--use_actnorm', default=False, action='store_true', help="whether to use activation norm (defaults to False)")
-    experiment_group.add_argument('--use_affine_ex', default=False, action='store_true', help="whether to use conditional affine transformation on e_x (defaults to False)")
-    experiment_group.add_argument('--validate', default=False, action='store_true', help="latent dimension of model (defaults to False)")
-    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (defaults to 256)")
-    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (defaults to 256)")
+    experiment_group.add_argument('--num_scales', default=4, type=int, help="number of scales (default: %(default)s)")
+    experiment_group.add_argument('--flows_per_scale', default=10, type=int, help="number of flows per scale (default: %(default)s)")
+    experiment_group.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing (default: %(default)s)", choices=['realnvp', 'glow'])
+    experiment_group.add_argument('--hidden_channels', default=256, type=int, help="number of hidden channels in convnet (default: %(default)s)")
+    experiment_group.add_argument('--lr', default=1e-4, type=float, help="lr for deep part (default: %(default)s)")
+    experiment_group.add_argument('--pgm_lr', default=1e-1, type=float, help="lr for pgm (default: %(default)s)")
+    experiment_group.add_argument('--l2', default=0., type=float, help="weight decay (default: %(default)s)")
+    experiment_group.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad? (default: %(default)s)")
+    experiment_group.add_argument('--use_actnorm', default=False, action='store_true', help="whether to use activation norm (default: %(default)s)")
+    experiment_group.add_argument('--use_affine_ex', default=False, action='store_true', help="whether to use conditional affine transformation on e_x (default: %(default)s)")
+    experiment_group.add_argument('--validate', default=False, action='store_true', help="latent dimension of model (default: %(default)s)")
+    experiment_group.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
+    experiment_group.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
+    experiment_group.add_argument('--use_rad', default=False, action='store_true', help="whether to use rad instead of deg for decoder (default: %(default)s)")
+    experiment_group.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
+    experiment_group.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
 
     args = parser.parse_args()
 
