@@ -17,6 +17,69 @@ import matplotlib.pyplot as plt
 from morphomnist import measure
 import os
 
+EXPERIMENT_REGISTRY = {}
+MODEL_REGISTRY = {}
+
+
+class BaseSEM(PyroModule):
+    def __init__(self):
+        super().__init__()
+
+    @pyro_method
+    def pgm_model(self):
+        raise NotImplementedError()
+
+    @pyro_method
+    def model(self):
+        raise NotImplementedError()
+
+    @pyro_method
+    def pgm_scm(self):
+        raise NotImplementedError()
+
+    @pyro_method
+    def scm(self):
+        raise NotImplementedError()
+
+    @pyro_method
+    def sample(self, n_samples=1):
+        with pyro.plate('observations', n_samples):
+            samples = self.model()
+
+        return (*samples,)
+
+    @pyro_method
+    def sample_scm(self, n_samples=1):
+        with pyro.plate('observations', n_samples):
+            samples = self.scm()
+
+        return (*samples,)
+
+    @pyro_method
+    def infer_e_t(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    @pyro_method
+    def infer_e_s(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    @pyro_method
+    def infer_e_x(self, *args, **kwargs):
+        raise NotImplementedError()
+
+    @pyro_method
+    def infer(self, x, thickness, slant):
+        raise NotImplementedError()
+
+    @pyro_method
+    def counterfactual(self, x, thickness, slant, data=None):
+        raise NotImplementedError()
+
+    @classmethod
+    def add_arguments(parser):
+
+        return parser
+
 
 class BaseCovariateExperiment(PyroExperiment):
     def __init__(self, hparams, pyro_model):
@@ -27,7 +90,7 @@ class BaseCovariateExperiment(PyroExperiment):
         hparams.experiment = self.__class__.__name__
         hparams.model = pyro_model.__class__.__name__
         self.hparams = hparams
-        self.data_dir = "/vol/biomedic2/np716/data/gemini/synthetic/2/"
+        self.data_dir = hparams.data_dir
         self.train_batch_size = hparams.train_batch_size
         self.test_batch_size = hparams.test_batch_size
 
@@ -60,6 +123,12 @@ class BaseCovariateExperiment(PyroExperiment):
         slants = 10 * (torch.arange(3, dtype=torch.float, device=self.device) - 1)
         self.slant_range = slants.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.zeros([9, self.hparams.latent_dim], device=self.device, dtype=torch.float)
+
+        self.pyro_model.s_flow_norm.loc = mnist_train.metrics['slant'].mean().to(self.device).float()
+        self.pyro_model.s_flow_norm.scale = mnist_train.metrics['slant'].std().to(self.device).float()
+
+        self.pyro_model.t_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.device).float()
+        self.pyro_model.t_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.device).float()
 
     def train_dataloader(self):
         return DataLoader(self.mnist_train, batch_size=self.train_batch_size, shuffle=True)
@@ -256,3 +325,64 @@ class BaseCovariateExperiment(PyroExperiment):
 
             counter, *_ = pyro.condition(self.pyro_model.sample, data={'z': z, 'thickness': thickness, 'slant': slant + 10})(8)
             self.log_img_grid('counter_slant', torch.cat([x, counter.data], 0),)
+
+    @classmethod
+    def add_arguments(parser):
+        parser.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
+        parser.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
+        parser.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
+        parser.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
+        parser.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
+        parser.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
+        parser.add_argument('--pgm_lr', default=5e-2, type=float, help="lr of pgm (default: %(default)s)")
+
+        return parser
+
+
+if __name__ == '__main__':
+    from pytorch_lightning import Trainer
+    import argparse
+
+    exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    exp_parser.add_argument('--experiment', '-e', help='which experiment to load')
+    exp_parser.add_argument('--model', '-m', help='which model to load')
+
+    exp_args, other_args = exp_parser.parse_known_args()
+
+    exp_class = EXPERIMENT_REGISTRY[exp_args.experiment]
+    model_class = MODEL_REGISTRY[exp_args.model]
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = Trainer.add_argparse_args(parser)
+    parser.set_defaults(logger=True, checkpoint_callback=True)
+
+    parser._action_groups[1].title = 'lightning_options'
+
+    experiment_group = parser.add_argument_group('experiment')
+    exp_class.add_arguments(experiment_group)
+
+    model_group = parser.add_argument_group('model')
+    model_class.add_arguments(model_group)
+
+    args = parser.parse_args(other_args)
+
+    # TODO: push to lightning
+    args.gradient_clip_val = float(args.gradient_clip_val)
+
+    groups = {}
+    for group in parser._action_groups:
+        group_dict = {a.dest: getattr(args, a.dest, None) for a in group._group_actions}
+        groups[group.title] = argparse.Namespace(**group_dict)
+
+    lightning_args = groups['lightning_options']
+    hparams = groups['experiment']
+    model_params = groups['model']
+
+    hparams.model_params = model_params
+
+    trainer = Trainer.from_argparse_args(lightning_args)
+
+    model = model_class(**model_params)
+    experiment = exp_class(hparams, model)
+
+    trainer.fit(experiment)
