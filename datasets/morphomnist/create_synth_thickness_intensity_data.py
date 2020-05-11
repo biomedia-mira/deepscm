@@ -23,11 +23,14 @@ def get_intensity(img):
     return avg_intensity
 
 
-def model(n_samples=None, scale=2.):
+def model(n_samples=None, scale=2., invert=False):
     with pyro.plate('observations', n_samples):
         thickness = pyro.sample('thickness', Gamma(10., 5.))
 
-        loc = (thickness - 2.5) * 2
+        if invert:
+            loc = (thickness - 2.5) * -2
+        else:
+            loc = (thickness - 2.5) * 2
 
         transforms = ComposeTransform([SigmoidTransform(), AffineTransform(64, 195)])
 
@@ -74,6 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out-dir', type=str, help="Path to store new dataset")
     parser.add_argument('-d', '--digit-class', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="digit class to select")
     parser.add_argument('-s', '--scale', type=float, default=2., help="scale of logit normal")
+    parser.add_argument('-i', '--invert', default=False, action='store_true', help="inverses correlation")
 
     args = parser.parse_args()
 
