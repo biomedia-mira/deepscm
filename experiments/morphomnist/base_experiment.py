@@ -178,12 +178,12 @@ class BaseCovariateExperiment(PyroExperiment):
         imgs /= imgs.max() + 1e-6
         measurements = measure.measure_batch(imgs, threshold=threshold, use_progress_bar=False)
 
-        return measurements['thickness'].values, np.rad2deg(measurements['slant'].values)
+        return measurements['thickness'].values, measurements['width'].values
 
     def prepare_data(self):
         # prepare transforms standard to MNIST
-        mnist_train = MorphoMNISTLike(self.data_dir, train=True, columns=['thickness', 'slant'])
-        self.mnist_test = MorphoMNISTLike(self.data_dir, train=False, columns=['thickness', 'slant'])
+        mnist_train = MorphoMNISTLike(self.data_dir, train=True, columns=['thickness', 'width'])
+        self.mnist_test = MorphoMNISTLike(self.data_dir, train=False, columns=['thickness', 'width'])
 
         num_val = int(len(mnist_train) * 0.1)
         num_train = len(mnist_train) - num_val
@@ -192,15 +192,15 @@ class BaseCovariateExperiment(PyroExperiment):
         self.device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
         thicknesses = 1. + torch.arange(3, dtype=torch.float, device=self.device)
         self.thickness_range = thicknesses.repeat(3).unsqueeze(1)
-        slants = 25 * (torch.arange(3, dtype=torch.float, device=self.device) - 1)
-        self.slant_range = slants.repeat_interleave(3).unsqueeze(1)
+        width = 5 * torch.arange(3, dtype=torch.float, device=self.device) + 10
+        self.width_range = width.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.zeros([9, self.hparams.latent_dim], device=self.device, dtype=torch.float)
 
-        self.pyro_model.s_flow_norm.loc = mnist_train.metrics['slant'].mean().to(self.device).float()
-        self.pyro_model.s_flow_norm.scale = mnist_train.metrics['slant'].std().to(self.device).float()
+        self.pyro_model.width_flow_norm.loc = mnist_train.metrics['width'].min().to(self.device).float()
+        self.pyro_model.width_flow_norm.scale = (mnist_train.metrics['width'].max() - mnist_train.metrics['width'].min()).to(self.device).float()
 
-        self.pyro_model.t_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.device).float()
-        self.pyro_model.t_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.device).float()
+        self.pyro_model.thickness_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.device).float()
+        self.pyro_model.thickness_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.device).float()
 
     def train_dataloader(self):
         return DataLoader(self.mnist_train, batch_size=self.train_batch_size, shuffle=True)
@@ -223,11 +223,6 @@ class BaseCovariateExperiment(PyroExperiment):
         raise NotImplementedError()
 
     def validation_epoch_end(self, outputs):
-        tr = pyro.poutine.trace(self.pyro_model.sample_scm).get_trace()
-
-        for name, _ in tr.nodes.items():
-            print(f'name: {name}')
-
         num_items = len(outputs)
         metrics = {('val/' + k): v / num_items for k, v in outputs[0].items()}
         for r in outputs[1:]:
@@ -292,54 +287,54 @@ class BaseCovariateExperiment(PyroExperiment):
 
         self.logger.experiment.add_figure(tag, fig, self.current_epoch)
 
-    def build_reconstruction(self, x, thickness, slant, tag='reconstruction'):
-        obs = {'x': x, 'thickness': thickness, 'slant': slant}
+    def build_reconstruction(self, x, thickness, width, tag='reconstruction'):
+        obs = {'x': x, 'thickness': thickness, 'width': width}
 
         recon = self.pyro_model.reconstruct(**obs, num_particles=self.hparams.num_sample_particles)
         self.log_img_grid(tag, torch.cat([x, recon], 0))
         self.logger.experiment.add_scalar(f'{tag}/mse', torch.mean(torch.square(x - recon).sum((1, 2, 3))), self.current_epoch)
 
-        measured_thickness, measured_slant = self.measure_image(recon)
+        measured_thickness, measured_width = self.measure_image(recon)
         self.logger.experiment.add_scalar(
             f'{tag}/thickness_mae', torch.mean(torch.abs(thickness.cpu() - measured_thickness)), self.current_epoch)
         self.logger.experiment.add_scalar(
-            f'{tag}/slant_mae', torch.mean(torch.abs(slant.cpu() - measured_slant)), self.current_epoch)
+            f'{tag}/width_mae', torch.mean(torch.abs(width.cpu() - measured_width)), self.current_epoch)
 
     def build_counterfactual(self, tag, obs, conditions, absolute=None):
-        _required_data = ('x', 'thickness', 'slant')
+        _required_data = ('x', 'thickness', 'width')
         assert set(obs.keys()) == set(_required_data), 'got: {}'.format(tuple(obs.keys()))
 
         imgs = [obs['x']]
         if absolute == 'thickness':
-            sampled_kdes = {'orig': {'slant': obs['slant']}}
-        elif absolute == 'slant':
+            sampled_kdes = {'orig': {'width': obs['width']}}
+        elif absolute == 'width':
             sampled_kdes = {'orig': {'thickness': obs['thickness']}}
         else:
-            sampled_kdes = {'orig': {'thickness': obs['thickness'], 'slant': obs['slant']}}
-        measured_kdes = {'orig': {'thickness': obs['thickness'], 'slant': obs['slant']}}
+            sampled_kdes = {'orig': {'thickness': obs['thickness'], 'width': obs['width']}}
+        measured_kdes = {'orig': {'thickness': obs['thickness'], 'width': obs['width']}}
 
         for name, data in conditions.items():
             counterfactual = self.pyro_model._gen_counterfactual(obs=obs, condition=data)
 
             counter = counterfactual['x']
             sampled_thickness = counterfactual['thickness']
-            sampled_slant = counterfactual['slant']
+            sampled_width = counterfactual['width']
 
-            measured_thickness, measured_slant = self.measure_image(counter.cpu())
+            measured_thickness, measured_width = self.measure_image(counter.cpu())
 
             imgs.append(counter)
             if absolute == 'thickness':
-                sampled_kdes[name] = {'slant': sampled_slant}
-            elif absolute == 'slant':
+                sampled_kdes[name] = {'width': sampled_width}
+            elif absolute == 'width':
                 sampled_kdes[name] = {'thickness': sampled_thickness}
             else:
-                sampled_kdes[name] = {'thickness': sampled_thickness, 'slant': sampled_slant}
-            measured_kdes[name] = {'thickness': measured_thickness, 'slant': measured_slant}
+                sampled_kdes[name] = {'thickness': sampled_thickness, 'width': sampled_width}
+            measured_kdes[name] = {'thickness': measured_thickness, 'width': measured_width}
 
             self.logger.experiment.add_scalar(
                 f'{tag}/{name}/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
             self.logger.experiment.add_scalar(
-                f'{tag}/{name}/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+                f'{tag}/{name}/width_mae', torch.mean(torch.abs(sampled_width.cpu() - measured_width)), self.current_epoch)
 
         self.log_img_grid(tag, torch.cat(imgs, 0))
         self.log_kdes(f'{tag}_sampled', sampled_kdes, save_img=True)
@@ -351,22 +346,22 @@ class BaseCovariateExperiment(PyroExperiment):
 
             samples = sample_trace.nodes['x']['value']
             sampled_thickness = sample_trace.nodes['thickness']['value']
-            sampled_slant = sample_trace.nodes['slant']['value']
+            sampled_width = sample_trace.nodes['width']['value']
 
             self.log_img_grid('samples', samples.data[:8])
 
-            measured_thickness, measured_slant = self.measure_image(samples)
+            measured_thickness, measured_width = self.measure_image(samples)
             self.logger.experiment.add_scalar('samples/thickness_mae', torch.mean(torch.abs(sampled_thickness.cpu() - measured_thickness)), self.current_epoch)
-            self.logger.experiment.add_scalar('samples/slant_mae', torch.mean(torch.abs(sampled_slant.cpu() - measured_slant)), self.current_epoch)
+            self.logger.experiment.add_scalar('samples/width_mae', torch.mean(torch.abs(sampled_width.cpu() - measured_width)), self.current_epoch)
 
-            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'slant': self.slant_range, 'z': self.z_range})(9)
+            samples, *_ = pyro.condition(self.pyro_model.sample, data={'thickness': self.thickness_range, 'width': self.width_range, 'z': self.z_range})(9)
             self.log_img_grid('cond_samples', samples.data, nrow=3)
 
             obs_batch = self.prep_batch(self.get_batch(self.val_loader))
 
             kde_data = {
-                'batch': {'thickness': obs_batch['thickness'], 'slant': obs_batch['slant']},
-                'sampled': {'thickness': sampled_thickness, 'slant': sampled_slant}
+                'batch': {'thickness': obs_batch['thickness'], 'width': obs_batch['width']},
+                'sampled': {'thickness': sampled_thickness, 'width': sampled_width}
             }
             self.log_kdes('sample_kde', kde_data, save_img=True)
 
@@ -397,25 +392,25 @@ class BaseCovariateExperiment(PyroExperiment):
             self.build_counterfactual('do(thickess=x)', obs=obs_batch, conditions=conditions, absolute='thickness')
 
             conditions = {
-                '-45': {'slant': obs_batch['slant'] - 45},
-                '-25': {'slant': obs_batch['slant'] - 25},
-                '+25': {'slant': obs_batch['slant'] + 25},
-                '+45': {'slant': obs_batch['slant'] + 45}
+                '-10': {'width': obs_batch['width'] - 10},
+                '-5': {'width': obs_batch['width'] - 5},
+                '+5': {'width': obs_batch['width'] + 5},
+                '+10': {'width': obs_batch['width'] + 10}
             }
-            self.build_counterfactual('do(slant=+x)', obs=obs_batch, conditions=conditions)
+            self.build_counterfactual('do(width=+x)', obs=obs_batch, conditions=conditions)
 
             conditions = {
-                '-45': {'slant': torch.zeros_like(obs_batch['slant']) - 45},
-                '-25': {'slant': torch.zeros_like(obs_batch['slant']) - 25},
-                '0': {'slant': torch.zeros_like(obs_batch['slant'])},
-                '+25': {'slant': torch.zeros_like(obs_batch['slant']) + 25},
-                '+45': {'slant': torch.zeros_like(obs_batch['slant']) + 45}
+                '10': {'width': torch.zeros_like(obs_batch['width']) + 10},
+                '15': {'width': torch.zeros_like(obs_batch['width']) + 15},
+                '20': {'width': torch.zeros_like(obs_batch['width']) + 20},
+                '25': {'width': torch.zeros_like(obs_batch['width']) + 25}
             }
-            self.build_counterfactual('do(slant=x)', obs=obs_batch, conditions=conditions, absolute='slant')
+            self.build_counterfactual('do(width=x)', obs=obs_batch, conditions=conditions, absolute='width')
 
     @classmethod
     def add_arguments(cls, parser):
-        parser.add_argument('--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/2_more_slant/", type=str, help="data dir (default: %(default)s)")
+        parser.add_argument(
+            '--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/thickness_width/2/", type=str, help="data dir (default: %(default)s)")
         parser.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
         parser.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
         parser.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")

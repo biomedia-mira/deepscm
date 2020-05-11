@@ -7,7 +7,7 @@ from pyro.distributions import Normal, TransformedDistribution
 from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.transforms import (
     Spline, ExpTransform, ComposeTransform, AffineCoupling,
-    GeneralizedChannelPermute, AffineTransform
+    GeneralizedChannelPermute, AffineTransform, SigmoidTransform
 )
 from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
 from distributions.transforms.affine import LearnedAffineTransform
@@ -25,15 +25,16 @@ class IndependentFlowSEM(BaseFlowSEM):
         # decoder parts
 
         # Flow for modelling t Gamma
-        self.t_flow_components = ComposeTransformModule([Spline(1)])
-        self.t_flow_lognorm = AffineTransform(loc=0., scale=1.)
-        self.t_flow_constraint_transforms = ComposeTransform([self.t_flow_lognorm, ExpTransform()])
-        self.t_flow_transforms = ComposeTransform([self.t_flow_components, self.t_flow_constraint_transforms])
+        self.thickness_flow_components = ComposeTransformModule([Spline(1)])
+        self.thickness_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.thickness_flow_constraint_transforms = ComposeTransform([self.thickness_flow_lognorm, ExpTransform()])
+        self.thickness_flow_transforms = ComposeTransform([self.thickness_flow_components, self.thickness_flow_constraint_transforms])
 
         # affine flow for s normal
-        self.s_flow_components = ComposeTransformModule([LearnedAffineTransform(), Spline(1)])
-        self.s_flow_norm = AffineTransform(loc=0., scale=1.)
-        self.s_flow_transforms = [self.s_flow_components, self.s_flow_norm]
+        self.width_flow_components = ComposeTransformModule([LearnedAffineTransform(), Spline(1)])
+        self.width_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.width_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.width_flow_norm])
+        self.width_flow_transforms = [self.width_flow_components, self.width_flow_constraint_transforms]
 
         # realnvp or so for x
         self._build_image_flow()
@@ -79,43 +80,43 @@ class IndependentFlowSEM(BaseFlowSEM):
 
     @pyro_method
     def pgm_model(self):
-        t_bd = Normal(self.e_t_loc, self.e_t_scale).to_event(1)
-        t_dist = TransformedDistribution(t_bd, self.t_flow_transforms)
+        thickness_base_dist = Normal(self.thickness_base_loc, self.thickness_base_scale).to_event(1)
+        thickness_dist = TransformedDistribution(thickness_base_dist, self.thickness_flow_transforms)
 
-        thickness = pyro.sample('thickness', t_dist)
-        # pseudo call to t_flow_transforms to register with pyro
-        _ = self.t_flow_components
+        thickness = pyro.sample('thickness', thickness_dist)
+        # pseudo call to thickness_flow_transforms to register with pyro
+        _ = self.thickness_flow_components
 
-        s_bd = Normal(self.e_s_loc, self.e_s_scale).to_event(1)
-        s_dist = TransformedDistribution(s_bd, self.s_flow_transforms)
+        width_base_dist = Normal(self.width_base_loc, self.width_base_scale).to_event(1)
+        width_dist = TransformedDistribution(width_base_dist, self.width_flow_transforms)
 
-        slant = pyro.sample('slant', s_dist)
-        # pseudo call to s_flow_transforms to register with pyro
-        _ = self.s_flow_components
+        width = pyro.sample('width', width_dist)
+        # pseudo call to width_flow_transforms to register with pyro
+        _ = self.width_flow_components
 
-        return thickness, slant
+        return thickness, width
 
     @pyro_method
     def model(self):
-        thickness, slant = self.pgm_model()
+        thickness, width = self.pgm_model()
 
-        x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
-        x_dist = TransformedDistribution(x_bd, ComposeTransform(self.x_transforms).inv)
+        x_base_dist = Normal(self.x_base_loc, self.x_base_scale).to_event(3)
+        x_dist = TransformedDistribution(x_base_dist, ComposeTransform(self.x_transforms).inv)
 
         x = pyro.sample('x', x_dist)
 
-        return x, thickness, slant
+        return x, thickness, width
 
     @pyro_method
-    def infer_e_t(self, thickness):
-        return self.t_flow_transforms.inv(thickness)
+    def infer_thickness_base(self, thickness):
+        return self.thickness_flow_transforms.inv(thickness)
 
     @pyro_method
-    def infer_e_s(self, s):
-        return self.s_flow_transforms.inv(s)
+    def infer_width_base(self, width):
+        return self.width_flow_transforms.inv(width)
 
     @pyro_method
-    def infer_e_x(self, thickness, slant, x):
+    def infer_x_base(self, thickness, width, x):
         return ComposeTransform(self.x_transforms)(x)
 
 
