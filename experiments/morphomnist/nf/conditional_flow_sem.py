@@ -90,18 +90,18 @@ class ConditionalFlowSEM(BaseFlowSEM):
 
     @pyro_method
     def pgm_model(self):
-        t_bd = Normal(self.e_t_loc, self.e_t_scale)
+        t_bd = Normal(self.e_t_loc, self.e_t_scale).to_event(1)
         t_dist = TransformedDistribution(t_bd, self.t_flow_transforms)
 
-        thickness = pyro.sample('thickness', t_dist.to_event(1))
+        thickness = pyro.sample('thickness', t_dist)
         thickness_ = self.t_flow_constraint_transforms.inv(thickness)
         # pseudo call to t_flow_transforms to register with pyro
         _ = self.t_flow_components
 
-        s_bd = Normal(self.e_s_loc, self.e_s_scale)
+        s_bd = Normal(self.e_s_loc, self.e_s_scale).to_event(1)
         s_dist = ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_)
 
-        slant = pyro.sample('slant', s_dist.to_event(1))
+        slant = pyro.sample('slant', s_dist)
         # pseudo call to s_flow_transforms to register with pyro
         _ = self.s_flow_components
 
@@ -121,43 +121,6 @@ class ConditionalFlowSEM(BaseFlowSEM):
         cond_x_dist = TransformedDistribution(x_bd, cond_x_transforms)
 
         x = pyro.sample('x', cond_x_dist)
-
-        return x, thickness, slant
-
-    @pyro_method
-    def pgm_scm(self):
-        t_bd = Normal(self.e_t_loc, self.e_t_scale).to_event(1)
-        e_t = pyro.sample('e_t', t_bd)
-
-        thickness = self.t_flow_transforms(e_t)
-        thickness = pyro.deterministic('thickness', thickness)
-        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
-
-        s_bd = Normal(self.e_s_loc, self.e_s_scale).to_event(1)
-        e_s = pyro.sample('e_s', s_bd)
-
-        cond_s_transforms = ComposeTransform(ConditionalTransformedDistribution(s_bd, self.s_flow_transforms).condition(thickness_).transforms)
-
-        slant = cond_s_transforms(e_s)
-        slant = pyro.deterministic('slant', slant)
-
-        return thickness, slant
-
-    @pyro_method
-    def scm(self):
-        thickness, slant = self.pgm_scm()
-
-        thickness_ = self.t_flow_constraint_transforms.inv(thickness)
-        slant_ = self.s_flow_norm.inv(slant)
-
-        context = torch.cat([thickness_, slant_], 1)
-
-        x_bd = Normal(self.e_x_loc, self.e_x_scale).to_event(3)
-        e_x = pyro.sample('e_x', x_bd)
-        cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_bd, self.x_transforms).condition(context).transforms).inv
-
-        x = cond_x_transforms(e_x)
-        x = pyro.deterministic('x', x)
 
         return x, thickness, slant
 

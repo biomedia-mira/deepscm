@@ -13,8 +13,6 @@ import numpy as np
 
 from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
-from pyro.distributions.transforms import ComposeTransform
-
 
 class CustomELBO(TraceGraph_ELBO):
     # just do one step of regular elbo
@@ -75,21 +73,6 @@ class BaseVISEM(BaseSEM):
     @pyro_method
     def infer_z(self, *args, **kwargs):
         return self.guide(*args, **kwargs)
-
-    @pyro_method
-    def infer_exogeneous(self, x, z, thickness, slant):
-        # assuming that we use transformed distributions for everything:
-        cond_sample = pyro.condition(self.sample, data={'x': x, 'z': z, 'thickness': thickness, 'slant': slant})
-        cond_trace = pyro.poutine.trace(cond_sample).get_trace(x.shape[0])
-
-        output = {}
-        for (node, short) in [('thickness', 'e_t'), ('slant', 'e_s'), ('x', 'e_x')]:
-            fn = cond_trace.nodes[node]['fn']
-            if isinstance(fn, Independent):
-                fn = fn.base_dist
-            output[short] = ComposeTransform(fn.transforms).inv(cond_trace.nodes[node]['value'])
-
-        return output
 
     @pyro_method
     def infer(self, **obs):

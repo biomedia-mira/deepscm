@@ -4,8 +4,6 @@ import pyro
 import numpy as np
 
 from pyro.nn import pyro_method
-from torch.distributions import Independent
-from pyro.distributions.transforms import ComposeTransform
 
 from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 from experiments import PyroExperiment
@@ -34,21 +32,8 @@ class BaseFlowSEM(BaseSEM):
         self.register_buffer('e_x_scale', torch.ones([1, 32, 32], requires_grad=False))
 
     @pyro_method
-    def infer(self, x, thickness, slant):
-        obs = {'x': x, 'thickness': thickness, 'slant': slant}
-
-        # assuming that we use transformed distributions for everything:
-        cond_sample = pyro.condition(self.sample, data=obs)
-        cond_trace = pyro.poutine.trace(cond_sample).get_trace(obs['x'].shape[0])
-
-        output = {}
-        for (node, short) in [('thickness', 'e_t'), ('slant', 'e_s'), ('x', 'e_x')]:
-            fn = cond_trace.nodes[node]['fn']
-            if isinstance(fn, Independent):
-                fn = fn.base_dist
-            output[short] = ComposeTransform(fn.transforms).inv(cond_trace.nodes[node]['value'])
-
-        return output
+    def infer(self, **obs):
+        return self.infer_exogeneous(**obs)
 
     @pyro_method
     def counterfactual(self, obs: Mapping, condition: Mapping = None):

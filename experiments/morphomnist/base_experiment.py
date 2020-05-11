@@ -2,6 +2,10 @@ import pyro
 
 from pyro.nn import PyroModule, pyro_method
 
+from pyro.distributions import TransformedDistribution
+from pyro.infer.reparam.transform import TransformReparam
+from torch.distributions import Independent
+
 from datasets.morphomnist import MorphoMNISTLike
 from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, AffineTransform
 
@@ -59,12 +63,24 @@ class BaseSEM(PyroModule):
         raise NotImplementedError()
 
     @pyro_method
-    def pgm_scm(self):
-        raise NotImplementedError()
+    def pgm_scm(self, *args, **kwargs):
+        def config(msg):
+            if isinstance(msg['fn'], TransformedDistribution):
+                return TransformReparam()
+            else:
+                return None
+
+        return pyro.poutine.reparam(self.pgm_model, config=config)(*args, **kwargs)
 
     @pyro_method
-    def scm(self):
-        raise NotImplementedError()
+    def scm(self, *args, **kwargs):
+        def config(msg):
+            if isinstance(msg['fn'], TransformedDistribution):
+                return TransformReparam()
+            else:
+                return None
+
+        return pyro.poutine.reparam(self.model, config=config)(*args, **kwargs)
 
     @pyro_method
     def sample(self, n_samples=1):
@@ -91,6 +107,25 @@ class BaseSEM(PyroModule):
     @pyro_method
     def infer_e_x(self, *args, **kwargs):
         raise NotImplementedError()
+
+    @pyro_method
+    def infer_exogeneous(self, **obs):
+        # assuming that we use transformed distributions for everything:
+        cond_sample = pyro.condition(self.sample, data=obs)
+        cond_trace = pyro.poutine.trace(cond_sample).get_trace(obs['x'].shape[0])
+
+        output = {}
+        for name, node in cond_trace.nodes.items():
+            if 'fn' not in node.keys():
+                continue
+
+            fn = node['fn']
+            if isinstance(fn, Independent):
+                fn = fn.base_dist
+            if isinstance(fn, TransformedDistribution):
+                output[name + '_base'] = ComposeTransform(fn.transforms).inv(node['value'])
+
+        return output
 
     @pyro_method
     def infer(self, **obs):
@@ -188,6 +223,11 @@ class BaseCovariateExperiment(PyroExperiment):
         raise NotImplementedError()
 
     def validation_epoch_end(self, outputs):
+        tr = pyro.poutine.trace(self.pyro_model.sample_scm).get_trace()
+
+        for name, _ in tr.nodes.items():
+            print(f'name: {name}')
+
         num_items = len(outputs)
         metrics = {('val/' + k): v / num_items for k, v in outputs[0].items()}
         for r in outputs[1:]:
