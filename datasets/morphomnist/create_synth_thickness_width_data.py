@@ -13,7 +13,7 @@ from datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
 from datasets.morphomnist.transforms import SetThickness, SetWidth, ImageMorphology
 
 
-def model(n_samples=None):
+def model(n_samples=None, scale=2.):
     with pyro.plate('observations', n_samples):
         thickness = pyro.sample('thickness', Gamma(10., 5.))
 
@@ -21,7 +21,7 @@ def model(n_samples=None):
 
         transforms = ComposeTransform([SigmoidTransform(), AffineTransform(10, 15)])
 
-        width = pyro.sample('width', TransformedDistribution(Normal(loc, 2), transforms))
+        width = pyro.sample('width', TransformedDistribution(Normal(loc, scale), transforms))
 
     return thickness, width
 
@@ -37,7 +37,7 @@ def gen_dataset(args, train=True):
 
     n_samples = len(images)
     with torch.no_grad():
-        thickness, width = model(n_samples)
+        thickness, width = model(n_samples, scale=args.scale)
 
     metrics = pd.DataFrame(data={'thickness': thickness, 'width': width})
 
@@ -61,6 +61,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, default='/vol/biomedic/users/dc315/mnist/original/', help="Path to MNIST (default: %(default)s)")
     parser.add_argument('-o', '--out-dir', type=str, help="Path to store new dataset")
     parser.add_argument('-d', '--digit-class', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="digit class to select")
+    parser.add_argument('-s', '--scale', type=float, default=2., help="scale of logit normal")
 
     args = parser.parse_args()
 
