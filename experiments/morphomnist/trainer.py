@@ -5,6 +5,7 @@ if __name__ == '__main__':
     from pytorch_lightning import Trainer
     from pytorch_lightning.logging import TensorBoardLogger
     import argparse
+    import os
 
     exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     exp_parser.add_argument('--experiment', '-e', help='which experiment to load', choices=tuple(EXPERIMENT_REGISTRY.keys()))
@@ -28,6 +29,11 @@ if __name__ == '__main__':
     model_class.add_arguments(model_group)
 
     args = parser.parse_args(other_args)
+
+    if args.gpus is not None:
+        # Make sure that it only uses a single GPU..
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
+        args.gpus = 1
 
     # TODO: push to lightning
     args.gradient_clip_val = float(args.gradient_clip_val)
