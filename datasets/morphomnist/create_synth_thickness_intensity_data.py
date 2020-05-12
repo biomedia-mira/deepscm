@@ -28,7 +28,7 @@ def model(n_samples=None, scale=2., invert=False):
         thickness = pyro.sample('thickness', Gamma(10., 5.))
 
         if invert:
-            loc = (thickness - 2.5) * -2
+            loc = (thickness - 2) * -2
         else:
             loc = (thickness - 2.5) * 2
 
@@ -41,21 +41,23 @@ def model(n_samples=None, scale=2., invert=False):
 
 def gen_dataset(args, train=True):
     pyro.clear_param_store()
-    images, labels, _ = load_morphomnist_like(args.data_dir, train=train)
+    images_, labels, _ = load_morphomnist_like(args.data_dir, train=train)
 
     if args.digit_class is not None:
         mask = (labels == args.digit_class)
-        images = images[mask]
+        images_ = images_[mask]
         labels = labels[mask]
+
+    images = np.zeros_like(images_)
 
     n_samples = len(images)
     with torch.no_grad():
-        thickness, intensity = model(n_samples, scale=args.scale)
+        thickness, intensity = model(n_samples, scale=args.scale, invert=args.invert)
 
     metrics = pd.DataFrame(data={'thickness': thickness, 'intensity': intensity})
 
     for n, (thickness, intensity) in enumerate(tqdm(zip(thickness, intensity), total=n_samples)):
-        morph = ImageMorphology(images[n], scale=16)
+        morph = ImageMorphology(images_[n], scale=16)
         tmp_img = morph.downscale(np.float32(SetThickness(thickness)(morph)))
 
         avg_intensity = get_intensity(tmp_img)
