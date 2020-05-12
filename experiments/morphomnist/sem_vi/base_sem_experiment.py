@@ -45,8 +45,8 @@ class BaseVISEM(BaseSEM):
         self.register_buffer('thickness_base_loc', torch.zeros([1, ], requires_grad=False))
         self.register_buffer('thickness_base_scale', torch.ones([1, ], requires_grad=False))
 
-        self.register_buffer('width_base_loc', torch.zeros([1, ], requires_grad=False))
-        self.register_buffer('width_base_scale', torch.ones([1, ], requires_grad=False))
+        self.register_buffer('intensity_base_loc', torch.zeros([1, ], requires_grad=False))
+        self.register_buffer('intensity_base_scale', torch.ones([1, ], requires_grad=False))
 
         self.register_buffer('z_loc', torch.zeros([latent_dim, ], requires_grad=False))
         self.register_buffer('z_scale', torch.ones([latent_dim, ], requires_grad=False))
@@ -58,17 +58,17 @@ class BaseVISEM(BaseSEM):
         return super()._get_preprocess_transforms().inv
 
     @pyro_method
-    def guide(self, x, thickness, width):
+    def guide(self, x, thickness, intensity):
         raise NotImplementedError()
 
     @pyro_method
-    def svi_guide(self, x, thickness, width):
-        self.guide(x, thickness, width)
+    def svi_guide(self, x, thickness, intensity):
+        self.guide(x, thickness, intensity)
 
     @pyro_method
-    def svi_model(self, x, thickness, width):
+    def svi_model(self, x, thickness, intensity):
         with pyro.plate('observations', x.shape[0]):
-            pyro.condition(self.model, data={'x': x, 'thickness': thickness, 'width': width})()
+            pyro.condition(self.model, data={'x': x, 'thickness': thickness, 'intensity': intensity})()
 
     @pyro_method
     def infer_z(self, *args, **kwargs):
@@ -76,7 +76,7 @@ class BaseVISEM(BaseSEM):
 
     @pyro_method
     def infer(self, **obs):
-        _required_data = ('x', 'thickness', 'width')
+        _required_data = ('x', 'thickness', 'intensity')
         assert set(obs.keys()) == set(_required_data), 'got: {}'.format(tuple(obs.keys()))
 
         z = self.infer_z(**obs)
@@ -87,20 +87,20 @@ class BaseVISEM(BaseSEM):
         return exogeneous
 
     @pyro_method
-    def reconstruct(self, x, thickness, width, num_particles: int = 1):
-        obs = {'x': x, 'thickness': thickness, 'width': width}
+    def reconstruct(self, x, thickness, intensity, num_particles: int = 1):
+        obs = {'x': x, 'thickness': thickness, 'intensity': intensity}
         z_dist = pyro.poutine.trace(self.guide).get_trace(**obs).nodes['z']['fn']
 
         recons = []
         for _ in range(num_particles):
             z = pyro.sample('z', z_dist)
-            recon, *_ = pyro.poutine.condition(self.sample, data={'thickness': thickness, 'width': width, 'z': z})(x.shape[0])
+            recon, *_ = pyro.poutine.condition(self.sample, data={'thickness': thickness, 'intensity': intensity, 'z': z})(x.shape[0])
             recons += [recon]
         return torch.stack(recons).mean(0)
 
     @pyro_method
     def counterfactual(self, obs: Mapping, condition: Mapping = None, num_particles: int = 1):
-        _required_data = ('x', 'thickness', 'width')
+        _required_data = ('x', 'thickness', 'intensity')
         assert set(obs.keys()) == set(_required_data), 'got: {}'.format(tuple(obs.keys()))
 
         z_dist = pyro.poutine.trace(self.guide).get_trace(**obs).nodes['z']['fn']
@@ -113,7 +113,7 @@ class BaseVISEM(BaseSEM):
             exogeneous['z'] = z
             counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data=exogeneous), data=condition)(obs['x'].shape[0])
             counterfactuals += [counter]
-        return {k: v for k, v in zip(('x', 'z', 'thickness', 'width'), (torch.stack(c).mean(0) for c in zip(*counterfactuals)))}
+        return {k: v for k, v in zip(('x', 'z', 'thickness', 'intensity'), (torch.stack(c).mean(0) for c in zip(*counterfactuals)))}
 
     @classmethod
     def add_arguments(cls, parser):
@@ -137,7 +137,7 @@ class SVIExperiment(BaseCovariateExperiment):
     def _build_svi(self, loss=None):
         def per_param_callable(module_name, param_name):
             params = {'eps': 1e-5, 'amsgrad': self.hparams.use_amsgrad, 'weight_decay': self.hparams.l2}
-            if module_name == 'width_flow_components' or module_name == 'thickness_flow_components':
+            if module_name == 'intensity_flow_components' or module_name == 'thickness_flow_components':
                 params['lr'] = self.hparams.pgm_lr
                 return params
             else:
@@ -153,10 +153,10 @@ class SVIExperiment(BaseCovariateExperiment):
     def print_trace_updates(self, batch):
         print('Traces:\n' + ('#' * 10))
 
-        x, thickness, width = self.prep_batch(batch)
+        x, thickness, intensity = self.prep_batch(batch)
 
-        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(x, thickness, width)
-        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(x, thickness, width)
+        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(x, thickness, intensity)
+        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(x, thickness, intensity)
 
         guide_trace = pyro.poutine.util.prune_subsample_sites(guide_trace)
         model_trace = pyro.poutine.util.prune_subsample_sites(model_trace)
@@ -202,7 +202,7 @@ class SVIExperiment(BaseCovariateExperiment):
         guide = self.svi.loss_class.trace_storage['guide']
 
         metrics['log p(x)'] = model.nodes['x']['log_prob_sum']
-        metrics['log p(width)'] = model.nodes['width']['log_prob_sum']
+        metrics['log p(intensity)'] = model.nodes['intensity']['log_prob_sum']
         metrics['log p(thickness)'] = model.nodes['thickness']['log_prob_sum']
         metrics['log p(z) - log q(z)'] = model.nodes['z']['log_prob_sum'] - guide.nodes['z']['log_prob_sum']
         metrics['p(z)'] = model.nodes['z']['log_prob_sum']
@@ -213,7 +213,7 @@ class SVIExperiment(BaseCovariateExperiment):
     def prep_batch(self, batch):
         x = batch['image']
         thickness = batch['thickness'].unsqueeze(1).float()
-        width = batch['width'].unsqueeze(1).float()
+        intensity = batch['intensity'].unsqueeze(1).float()
 
         x = x.float()
 
@@ -221,7 +221,7 @@ class SVIExperiment(BaseCovariateExperiment):
 
         x = x.unsqueeze(1)
 
-        return {'x': x, 'thickness': thickness, 'width': width}
+        return {'x': x, 'thickness': thickness, 'intensity': intensity}
 
     def training_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)

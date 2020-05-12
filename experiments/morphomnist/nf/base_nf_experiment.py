@@ -25,8 +25,8 @@ class BaseFlowSEM(BaseSEM):
         self.register_buffer('thickness_base_loc', torch.zeros([1, ], requires_grad=False))
         self.register_buffer('thickness_base_scale', torch.ones([1, ], requires_grad=False))
 
-        self.register_buffer('width_base_loc', torch.zeros([1, ], requires_grad=False))
-        self.register_buffer('width_base_scale', torch.ones([1, ], requires_grad=False))
+        self.register_buffer('intensity_base_loc', torch.zeros([1, ], requires_grad=False))
+        self.register_buffer('intensity_base_scale', torch.ones([1, ], requires_grad=False))
 
         self.register_buffer('x_base_loc', torch.zeros([1, 32, 32], requires_grad=False))
         self.register_buffer('x_base_scale', torch.ones([1, 32, 32], requires_grad=False))
@@ -37,13 +37,13 @@ class BaseFlowSEM(BaseSEM):
 
     @pyro_method
     def counterfactual(self, obs: Mapping, condition: Mapping = None):
-        _required_data = ('x', 'thickness', 'width')
+        _required_data = ('x', 'thickness', 'intensity')
         assert set(obs.keys()) == set(_required_data)
 
         exogeneous = self.infer(**obs)
 
         counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data=exogeneous), data=condition)(obs['x'].shape[0])
-        return {k: v for k, v in zip(('x', 'thickness', 'width'), counter)}
+        return {k: v for k, v in zip(('x', 'thickness', 'intensity'), counter)}
 
     @classmethod
     def add_arguments(cls, parser):
@@ -65,14 +65,14 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
 
     def configure_optimizers(self):
         thickness_params = self.pyro_model.thickness_flow_components.parameters()
-        width_params = self.pyro_model.width_flow_components.parameters()
+        intensity_params = self.pyro_model.intensity_flow_components.parameters()
 
         x_params = self.pyro_model.trans_modules.parameters()
 
         return torch.optim.Adam([
             {'params': x_params, 'lr': self.hparams.lr},
             {'params': thickness_params, 'lr': self.hparams.pgm_lr},
-            {'params': width_params, 'lr': self.hparams.pgm_lr},
+            {'params': intensity_params, 'lr': self.hparams.pgm_lr},
         ], lr=self.hparams.lr, eps=1e-5, amsgrad=self.hparams.use_amsgrad, weight_decay=self.hparams.l2)
 
     def _get_parameters(self, *args, **kwargs):
@@ -87,7 +87,7 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
         self.z_range = self.z_range.reshape((9, 1, 32, 32))
 
     def get_logprobs(self, **obs):
-        _required_data = ('x', 'thickness', 'width')
+        _required_data = ('x', 'thickness', 'intensity')
         assert set(obs.keys()) == set(_required_data)
 
         cond_model = pyro.condition(self.pyro_model.sample, data=obs)
@@ -116,14 +116,14 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
     def prep_batch(self, batch):
         x = batch['image'].float()
         thickness = batch['thickness'].unsqueeze(1).float()
-        width = batch['width'].unsqueeze(1).float()
+        intensity = batch['intensity'].unsqueeze(1).float()
 
         x = torch.nn.functional.pad(x, (2, 2, 2, 2))
         x += torch.rand_like(x)
 
         x = x.reshape(-1, 1, 32, 32)
 
-        return {'x': x, 'thickness': thickness, 'width': width}
+        return {'x': x, 'thickness': thickness, 'intensity': intensity}
 
     def training_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)

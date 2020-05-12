@@ -31,10 +31,10 @@ class IndependentFlowSEM(BaseFlowSEM):
         self.thickness_flow_transforms = ComposeTransform([self.thickness_flow_components, self.thickness_flow_constraint_transforms])
 
         # affine flow for s normal
-        self.width_flow_components = ComposeTransformModule([LearnedAffineTransform(), Spline(1)])
-        self.width_flow_norm = AffineTransform(loc=0., scale=1.)
-        self.width_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.width_flow_norm])
-        self.width_flow_transforms = [self.width_flow_components, self.width_flow_constraint_transforms]
+        self.intensity_flow_components = ComposeTransformModule([LearnedAffineTransform(), Spline(1)])
+        self.intensity_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.intensity_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.intensity_flow_norm])
+        self.intensity_flow_transforms = [self.intensity_flow_components, self.intensity_flow_constraint_transforms]
 
         # realnvp or so for x
         self._build_image_flow()
@@ -87,36 +87,36 @@ class IndependentFlowSEM(BaseFlowSEM):
         # pseudo call to thickness_flow_transforms to register with pyro
         _ = self.thickness_flow_components
 
-        width_base_dist = Normal(self.width_base_loc, self.width_base_scale).to_event(1)
-        width_dist = TransformedDistribution(width_base_dist, self.width_flow_transforms)
+        intensity_base_dist = Normal(self.intensity_base_loc, self.intensity_base_scale).to_event(1)
+        intensity_dist = TransformedDistribution(intensity_base_dist, self.intensity_flow_transforms)
 
-        width = pyro.sample('width', width_dist)
-        # pseudo call to width_flow_transforms to register with pyro
-        _ = self.width_flow_components
+        intensity = pyro.sample('intensity', intensity_dist)
+        # pseudo call to intensity_flow_transforms to register with pyro
+        _ = self.intensity_flow_components
 
-        return thickness, width
+        return thickness, intensity
 
     @pyro_method
     def model(self):
-        thickness, width = self.pgm_model()
+        thickness, intensity = self.pgm_model()
 
         x_base_dist = Normal(self.x_base_loc, self.x_base_scale).to_event(3)
         x_dist = TransformedDistribution(x_base_dist, ComposeTransform(self.x_transforms).inv)
 
         x = pyro.sample('x', x_dist)
 
-        return x, thickness, width
+        return x, thickness, intensity
 
     @pyro_method
     def infer_thickness_base(self, thickness):
         return self.thickness_flow_transforms.inv(thickness)
 
     @pyro_method
-    def infer_width_base(self, width):
-        return self.width_flow_transforms.inv(width)
+    def infer_intensity_base(self, intensity):
+        return self.intensity_flow_transforms.inv(intensity)
 
     @pyro_method
-    def infer_x_base(self, thickness, width, x):
+    def infer_x_base(self, thickness, intensity, x):
         return ComposeTransform(self.x_transforms)(x)
 
 

@@ -33,11 +33,11 @@ class ConditionalFlowSEM(BaseFlowSEM):
         self.thickness_flow_transforms = ComposeTransform([self.thickness_flow_components, self.thickness_flow_constraint_transforms])
 
         # affine flow for s normal
-        width_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
-        self.width_flow_components = ConditionalAffineTransform(context_nn=width_net, event_dim=0)
-        self.width_flow_norm = AffineTransform(loc=0., scale=1.)
-        self.width_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.width_flow_norm])
-        self.width_flow_transforms = [self.width_flow_components, self.width_flow_constraint_transforms]
+        intensity_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
+        self.intensity_flow_components = ConditionalAffineTransform(context_nn=intensity_net, event_dim=0)
+        self.intensity_flow_norm = AffineTransform(loc=0., scale=1.)
+        self.intensity_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.intensity_flow_norm])
+        self.intensity_flow_transforms = [self.intensity_flow_components, self.intensity_flow_constraint_transforms]
         # build flow as s_affine_w * t * e_s + b -> depends on t though
 
         # realnvp or so for x
@@ -99,23 +99,23 @@ class ConditionalFlowSEM(BaseFlowSEM):
         # pseudo call to thickness_flow_transforms to register with pyro
         _ = self.thickness_flow_components
 
-        width_base_dist = Normal(self.width_base_loc, self.width_base_scale).to_event(1)
-        width_dist = ConditionalTransformedDistribution(width_base_dist, self.width_flow_transforms).condition(thickness_)
+        intensity_base_dist = Normal(self.intensity_base_loc, self.intensity_base_scale).to_event(1)
+        intensity_dist = ConditionalTransformedDistribution(intensity_base_dist, self.intensity_flow_transforms).condition(thickness_)
 
-        width = pyro.sample('width', width_dist)
+        intensity = pyro.sample('intensity', intensity_dist)
         # pseudo call to w_flow_transforms to register with pyro
-        _ = self.width_flow_components
+        _ = self.intensity_flow_components
 
-        return thickness, width
+        return thickness, intensity
 
     @pyro_method
     def model(self):
-        thickness, width = self.pgm_model()
+        thickness, intensity = self.pgm_model()
 
         thickness_ = self.thickness_flow_constraint_transforms.inv(thickness)
-        width_ = self.width_flow_norm.inv(width)
+        intensity_ = self.intensity_flow_norm.inv(intensity)
 
-        context = torch.cat([thickness_, width_], 1)
+        context = torch.cat([thickness_, intensity_], 1)
 
         x_base_dist = Normal(self.x_base_loc, self.x_base_scale).to_event(3)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_base_dist, self.x_transforms).condition(context).transforms).inv
@@ -123,29 +123,29 @@ class ConditionalFlowSEM(BaseFlowSEM):
 
         x = pyro.sample('x', cond_x_dist)
 
-        return x, thickness, width
+        return x, thickness, intensity
 
     @pyro_method
     def infer_thickness_base(self, thickness):
         return self.thickness_flow_transforms.inv(thickness)
 
     @pyro_method
-    def infer_width_base(self, thickness, width):
-        width_base_dist = Normal(self.width_base_loc, self.width_base_scale)
+    def infer_intensity_base(self, thickness, intensity):
+        intensity_base_dist = Normal(self.intensity_base_loc, self.intensity_base_scale)
 
         thickness_ = self.thickness_flow_constraint_transforms.inv(thickness)
-        cond_width_transforms = ComposeTransform(
-            ConditionalTransformedDistribution(width_base_dist, self.width_flow_transforms).condition(thickness_).transforms)
-        return cond_width_transforms.inv(width)
+        cond_intensity_transforms = ComposeTransform(
+            ConditionalTransformedDistribution(intensity_base_dist, self.intensity_flow_transforms).condition(thickness_).transforms)
+        return cond_intensity_transforms.inv(intensity)
 
     @pyro_method
-    def infer_x_base(self, thickness, width, x):
+    def infer_x_base(self, thickness, intensity, x):
         x_base_dist = Normal(self.x_base_loc, self.x_base_scale)
 
         thickness_ = self.thickness_flow_constraint_transforms.inv(thickness)
-        width_ = self.width_flow_norm.inv(width)
+        intensity_ = self.intensity_flow_norm.inv(intensity)
 
-        context = torch.cat([thickness_, width_], 1)
+        context = torch.cat([thickness_, intensity_], 1)
         cond_x_transforms = ComposeTransform(ConditionalTransformedDistribution(x_base_dist, self.x_transforms).condition(context).transforms)
         return cond_x_transforms(x)
 
