@@ -66,6 +66,34 @@ class BaseVISEM(BaseSEM):
         self.guide(x, thickness, intensity)
 
     @pyro_method
+    def counterfactual_guide(self, x, thickness, intensity, counterfactual_type=-1):
+        if counterfactual_type == -1:
+            counterfactual_type = np.random.randint(0, 3)
+
+        num_samples = x.shape[0]
+
+        with pyro.poutine.block(hide_all=True):
+            # prepare conditioning
+            obs = {'x': x, 'thickness': thickness, 'intensity': intensity}
+
+            if counterfactual_type == 0:
+                condition = {'intensity': intensity[torch.randperm(num_samples)]}
+            elif counterfactual_type == 1:
+                condition = {'thickness': thickness[torch.randperm(num_samples)]}
+            elif counterfactual_type == 2:
+                condition = {'thickness': thickness[torch.randperm(num_samples)], 'intensity': intensity[torch.randperm(num_samples)]}
+            else:
+                raise ValueError('counterfactual_type needs to be in [0, 1, 2] but got {}'.format(counterfactual_type))
+
+            # get counterfactual
+            counterfactual = self.counterfactual(obs=obs, condition=condition, num_particles=1)
+
+        # run normal guide
+        counterfactual.pop('z', None)
+
+        return self.guide(**counterfactual)
+
+    @pyro_method
     def svi_model(self, x, thickness, intensity):
         with pyro.plate('observations', x.shape[0]):
             pyro.condition(self.model, data={'x': x, 'thickness': thickness, 'intensity': intensity})()
@@ -147,7 +175,12 @@ class SVIExperiment(BaseCovariateExperiment):
         if loss is None:
             loss = self.svi_loss
 
-        self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
+        if self.hparams.use_cf_guide:
+            def guide(*args, **kwargs):
+                return self.pyro_model.counterfactual_guide(*args, **kwargs, counterfactual_type=self.hparams.cf_elbo_type)
+            self.svi = SVI(self.pyro_model.svi_model, guide, Adam(per_param_callable), loss)
+        else:
+            self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
         self.svi.loss_class = loss
 
     def print_trace_updates(self, batch):
@@ -267,6 +300,10 @@ class SVIExperiment(BaseCovariateExperiment):
 
         parser.add_argument('--num_svi_particles', default=4, type=int, help="number of particles to use for ELBO (default: %(default)s)")
         parser.add_argument('--num_sample_particles', default=32, type=int, help="number of particles to use for MC sampling (default: %(default)s)")
+        parser.add_argument('--use_cf_guide', default=False, action='store_true', help="whether to use counterfactual guide (default: %(default)s)")
+        parser.add_argument(
+            '--cf_elbo_type', default=-1, choices=[-1, 0, 1, 2],
+            help="-1: randomly select per batch, 0: shuffle thickness, 1: shuffle intensity, 2: shuffle both (default: %(default)s)")
 
         return parser
 
