@@ -396,14 +396,14 @@ class BaseCovariateExperiment(PyroExperiment):
                 '+2': {'thickness': obs_batch['thickness'] + 2},
                 '+3': {'thickness': obs_batch['thickness'] + 3}
             }
-            self.build_counterfactual('do(thickess=+x)', obs=obs_batch, conditions=conditions)
+            self.build_counterfactual('do(thickness=+x)', obs=obs_batch, conditions=conditions)
 
             conditions = {
                 '1': {'thickness': torch.ones_like(obs_batch['thickness'])},
                 '2': {'thickness': torch.ones_like(obs_batch['thickness']) * 2},
                 '3': {'thickness': torch.ones_like(obs_batch['thickness']) * 3}
             }
-            self.build_counterfactual('do(thickess=x)', obs=obs_batch, conditions=conditions, absolute='thickness')
+            self.build_counterfactual('do(thickness=x)', obs=obs_batch, conditions=conditions, absolute='thickness')
 
             conditions = {
                 '-64': {'intensity': obs_batch['intensity'] - 64},
