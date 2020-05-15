@@ -186,10 +186,8 @@ class SVIExperiment(BaseCovariateExperiment):
     def print_trace_updates(self, batch):
         print('Traces:\n' + ('#' * 10))
 
-        x, thickness, intensity = self.prep_batch(batch)
-
-        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(x, thickness, intensity)
-        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(x, thickness, intensity)
+        guide_trace = pyro.poutine.trace(self.pyro_model.svi_guide).get_trace(**batch)
+        model_trace = pyro.poutine.trace(pyro.poutine.replay(self.pyro_model.svi_model, trace=guide_trace)).get_trace(**batch)
 
         guide_trace = pyro.poutine.util.prune_subsample_sites(guide_trace)
         model_trace = pyro.poutine.util.prune_subsample_sites(model_trace)
@@ -265,11 +263,11 @@ class SVIExperiment(BaseCovariateExperiment):
 
         loss = self.svi.step(**batch)
 
-        if np.isnan(loss):
-            self.logger.experiment.add_text('nan', f'nand at {self.current_epoch}')
-            raise ValueError('loss went to nan')
-
         metrics = self.get_trace_metrics(batch)
+
+        if np.isnan(loss):
+            self.logger.experiment.add_text('nan', f'nand at {self.current_epoch}:\n{metrics}')
+            raise ValueError('loss went to nan with metrics:\n{}'.format(metrics))
 
         tensorboard_logs = {('train/' + k): v for k, v in metrics.items()}
         tensorboard_logs['train/loss'] = loss
@@ -284,6 +282,11 @@ class SVIExperiment(BaseCovariateExperiment):
         metrics = self.get_trace_metrics(batch)
 
         return {'loss': loss, **metrics}
+
+    def validation_epoch_end(self, outputs):
+        self.logger.experiment.add_scalar('decoder/decoder_logstd', self.pyro_model.decoder_logstd,  self.current_epoch)
+
+        return super().validation_epoch_end(outputs)
 
     def test_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)
