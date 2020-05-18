@@ -11,7 +11,7 @@ from experiments.medical.ukbb.sem_vi.base_sem_experiment import BaseVISEM, MODEL
 
 
 class ConditionalVISEM(BaseVISEM):
-    context_dim = 3
+    context_dim = 2
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -70,11 +70,10 @@ class ConditionalVISEM(BaseVISEM):
 
         ventricle_volume_ = self.ventricle_volume_flow_constraint_transforms.inv(ventricle_volume)
         brain_volume_ = self.brain_volume_flow_constraint_transforms.inv(brain_volume)
-        age_ = self.age_flow_constraint_transforms.inv(age)
 
         z = pyro.sample('z', Normal(self.z_loc, self.z_scale).to_event(1))
 
-        latent = torch.cat([z, age_, ventricle_volume_, brain_volume_], 1)
+        latent = torch.cat([z, ventricle_volume_, brain_volume_], 1)
 
         x_dist = self._get_transformed_x_dist(latent)
 
