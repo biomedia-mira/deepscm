@@ -364,10 +364,10 @@ class BaseCovariateExperiment(PyroExperiment):
             self.build_counterfactual('do(sex=x)', obs=obs_batch, conditions=conditions)
 
             conditions = {
-                '800000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 800000.)},
-                '1100000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1100000.)},
-                '1400000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1400000.)},
-                '1600000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1600000.)}
+                '800000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume']) + 800000},
+                '1100000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume']) + 1100000},
+                '1400000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume']) + 1400000},
+                '1600000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume']) + 1600000}
             }
             self.build_counterfactual('do(brain_volume=x)', obs=obs_batch, conditions=conditions, absolute='brain_volume')
 
