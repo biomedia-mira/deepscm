@@ -9,7 +9,7 @@ import torchvision as tv
 
 
 class UKBBDataset(Dataset):
-    def __init__(self, csv_path, base_path='/vol/biomedic2/bglocker/gemini/UKBB/', crop_type=None, crop_size=(192, 192), downsample: int = None):
+    def __init__(self, csv_path, base_path='/vol/biomedic2/bglocker/gemini/UKBB/t0/', crop_type=None, crop_size=(192, 192), downsample: int = None):
         super().__init__()
         self.csv_path = csv_path
         df = pd.read_csv(csv_path)
