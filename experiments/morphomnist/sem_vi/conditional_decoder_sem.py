@@ -13,6 +13,8 @@ from experiments.morphomnist.sem_vi.base_sem_experiment import BaseVISEM, MODEL_
 
 
 class ConditionalDecoderVISEM(BaseVISEM):
+    context_dim = 2
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
