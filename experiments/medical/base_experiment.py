@@ -27,9 +27,10 @@ MODEL_REGISTRY = {}
 
 
 class BaseSEM(PyroModule):
-    def __init__(self, preprocessing: str = 'realnvp'):
+    def __init__(self, preprocessing: str = 'realnvp', downsample: int = -1):
         super().__init__()
 
+        self.downsample = downsample
         self.preprocessing = preprocessing
 
     def _get_preprocess_transforms(self):
@@ -129,6 +130,7 @@ class BaseSEM(PyroModule):
     @classmethod
     def add_arguments(cls, parser):
         parser.add_argument('--preprocessing', default='realnvp', type=str, help="type of preprocessing (default: %(default)s)", choices=['realnvp', 'glow'])
+        parser.add_argument('--downsample', default=-1, type=int, help="downsampling factor (default: %(default)s)")
 
         return parser
 
@@ -362,10 +364,10 @@ class BaseCovariateExperiment(PyroExperiment):
             self.build_counterfactual('do(sex=x)', obs=obs_batch, conditions=conditions)
 
             conditions = {
-                '800000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 800000)},
-                '1100000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1100000)},
-                '1400000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1400000)},
-                '1600000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1600000)}
+                '800000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 800000.)},
+                '1100000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1100000.)},
+                '1400000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1400000.)},
+                '1600000': {'brain_volume': torch.zeros_like(obs_batch['brain_volume'] + 1600000.)}
             }
             self.build_counterfactual('do(brain_volume=x)', obs=obs_batch, conditions=conditions, absolute='brain_volume')
 
@@ -388,6 +390,5 @@ class BaseCovariateExperiment(PyroExperiment):
         parser.add_argument('--pgm_lr', default=1e-1, type=float, help="lr of pgm (default: %(default)s)")
         parser.add_argument('--l2', default=0., type=float, help="weight decay (default: %(default)s)")
         parser.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad? (default: %(default)s)")
-        parser.add_argument('--downsample', default=-1, type=int, help="downsampling factor (default: %(default)s)")
 
         return parser
