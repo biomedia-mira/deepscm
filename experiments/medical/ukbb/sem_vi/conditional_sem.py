@@ -88,9 +88,8 @@ class ConditionalVISEM(BaseVISEM):
 
             ventricle_volume_ = self.ventricle_volume_flow_constraint_transforms.inv(ventricle_volume)
             brain_volume_ = self.brain_volume_flow_constraint_transforms.inv(brain_volume)
-            age_ = self.age_flow_constraint_transforms.inv(age)
 
-            hidden = torch.cat([hidden, age_, ventricle_volume_, brain_volume_], 1)
+            hidden = torch.cat([hidden, ventricle_volume_, brain_volume_], 1)
 
             latent_dist = self.latent_encoder.predict(hidden)
 
