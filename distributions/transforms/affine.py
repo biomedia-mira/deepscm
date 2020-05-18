@@ -1,5 +1,6 @@
 from pyro.distributions.conditional import ConditionalTransformModule
 from pyro.distributions.torch_transform import TransformModule
+from pyro.distributions import transforms as pyro_transforms
 from torch.distributions import transforms
 
 import torch
@@ -45,3 +46,13 @@ class ConditionalAffineTransform(ConditionalTransformModule):
 
         ac = transforms.AffineTransform(loc, scale, event_dim=self.event_dim)
         return ac
+
+
+class LowerCholeskyAffine(pyro_transforms.LowerCholeskyAffine):
+    def log_abs_det_jacobian(self, x, y):
+        """
+        Calculates the elementwise determinant of the log Jacobian, i.e.
+        log(abs(dy/dx)).
+        """
+        return torch.ones(x.size()[:-1], dtype=x.dtype, layout=x.layout, device=x.device) * \
+            self.scale_tril.diagonal(dim1=-2, dim2=-1).log().sum(-1).sum(-1)
