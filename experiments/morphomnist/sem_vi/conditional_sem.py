@@ -1,9 +1,6 @@
 import torch
 import pyro
 
-from arch.mnist import Decoder, Encoder
-from distributions.deep import DeepIndepNormal
-
 from pyro.nn import pyro_method
 from pyro.distributions import Normal, TransformedDistribution
 from pyro.distributions.transforms import (
@@ -18,14 +15,11 @@ from experiments.morphomnist.sem_vi.base_sem_experiment import BaseVISEM, MODEL_
 
 
 class ConditionalVISEM(BaseVISEM):
+    context_dim = 2
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        # decoder parts
-        self.decoder = Decoder(self.latent_dim + 2)
-
-        self.decoder_mean = torch.nn.Conv2d(1, 1, 1)
-        self.decoder_logstd = torch.nn.Parameter(torch.ones([]) * self.logstd_init)
         # Flow for modelling t Gamma
         self.thickness_flow_components = ComposeTransformModule([Spline(1)])
         self.thickness_flow_lognorm = AffineTransform(loc=0., scale=1.)
@@ -38,13 +32,6 @@ class ConditionalVISEM(BaseVISEM):
         self.intensity_flow_norm = AffineTransform(loc=0., scale=1.)
         self.intensity_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.intensity_flow_norm])
         self.intensity_flow_transforms = [self.intensity_flow_components, self.intensity_flow_constraint_transforms]
-
-        # encoder parts
-        self.encoder = Encoder(self.hidden_dim)
-
-        # TODO: do we need to replicate the PGM here to be able to run conterfactuals? oO
-        latent_layers = torch.nn.Sequential(torch.nn.Linear(self.hidden_dim + 2, self.hidden_dim), torch.nn.ReLU())
-        self.latent_encoder = DeepIndepNormal(latent_layers, self.hidden_dim, self.latent_dim)
 
     @pyro_method
     def pgm_model(self):
@@ -76,12 +63,7 @@ class ConditionalVISEM(BaseVISEM):
 
         latent = torch.cat([z, thickness_, intensity_], 1)
 
-        x_loc = self.decoder_mean(self.decoder(latent))
-        x_scale = torch.exp(self.decoder_logstd)
-        x_base_dist = Normal(self.x_base_loc, self.x_base_scale).to_event(3)
-
-        preprocess_transform = self._get_preprocess_transforms()
-        x_dist = TransformedDistribution(x_base_dist, ComposeTransform([AffineTransform(x_loc, x_scale, 3), preprocess_transform]))
+        x_dist = self._get_transformed_x_dist(latent)
 
         x = pyro.sample('x', x_dist)
 

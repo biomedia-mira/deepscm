@@ -6,6 +6,14 @@ from pyro.infer import SVI, TraceGraph_ELBO
 from pyro.nn import pyro_method
 from pyro.optim import Adam
 from torch.distributions import Independent
+from arch.mnist import Decoder, Encoder
+from pyro.distributions import LowRankMultivariateNormal, MultivariateNormal, Normal, TransformedDistribution
+from distributions.transforms.reshape import ReshapeTransform
+from distributions.transforms.affine import LowerCholeskyAffine
+
+from pyro.distributions.transforms import ComposeTransform, AffineTransform
+
+from distributions.deep import DeepMultivariateNormal, DeepIndepNormal, Conv2dIndepNormal, DeepLowRankMultivariateNormal
 
 import torch
 
@@ -27,13 +35,25 @@ class CustomELBO(TraceGraph_ELBO):
         model_trace, guide_trace = super()._get_trace(model, guide, args, kwargs)
 
         self.trace_storage['model'] = model_trace
-        self.trace_storage['guide'] = model_trace
+        self.trace_storage['guide'] = guide_trace
 
         return model_trace, guide_trace
 
 
+class Lambda(torch.nn.Module):
+    def __init__(self, func):
+        super().__init__()
+        self.func = func
+
+    def forward(self, x):
+        return self.func(x)
+
+
 class BaseVISEM(BaseSEM):
-    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5, **kwargs):
+    context_dim = 0
+    img_shape = (1, 28, 28)
+
+    def __init__(self, hidden_dim: int, latent_dim: int, logstd_init: float = -5, decoder_type: str = 'fixed_var', decoder_cov_rank: int = 10, **kwargs):
         super().__init__(**kwargs)
 
         self.hidden_dim = hidden_dim
@@ -54,8 +74,96 @@ class BaseVISEM(BaseSEM):
         self.register_buffer('x_base_loc', torch.zeros([1, 28, 28], requires_grad=False))
         self.register_buffer('x_base_scale', torch.ones([1, 28, 28], requires_grad=False))
 
+        self.decoder_type = decoder_type
+        self.decoder_cov_rank = decoder_cov_rank
+        # 'fixed_var', 'learned_var', 'independent_gaussian', 'multivariate_gaussian'
+        # TODO: This could be handled by passing a product distribution?
+
+        # decoder parts
+        decoder = self.decoder = Decoder(self.latent_dim + self.context_dim)
+
+        if self.decoder_type == 'fixed_var':
+            self.decoder = Conv2dIndepNormal(decoder, 1, 1)
+
+            torch.nn.init.zeros_(self.decoder.logvar_head.weight)
+            self.decoder.logvar_head.weight.requires_grad = False
+
+            torch.nn.init.constant_(self.decoder.logvar_head.bias, self.logstd_init)
+            self.decoder.logvar_head.bias.requires_grad = False
+        elif self.decoder_type == 'learned_var':
+            self.decoder = Conv2dIndepNormal(decoder, 1, 1)
+
+            torch.nn.init.zeros_(self.decoder.logvar_head.weight)
+            self.decoder.logvar_head.weight.requires_grad = False
+
+            torch.nn.init.constant_(self.decoder.logvar_head.bias, self.logstd_init)
+            self.decoder.logvar_head.bias.requires_grad = True
+        elif self.decoder_type == 'independent_gaussian':
+            self.decoder = Conv2dIndepNormal(decoder, 1, 1)
+
+            torch.nn.init.zeros_(self.decoder.logvar_head.weight)
+            self.decoder.logvar_head.weight.requires_grad = True
+
+            torch.nn.init.normal_(self.decoder.logvar_head.bias, self.logstd_init, 1e-1)
+            self.decoder.logvar_head.bias.requires_grad = True
+        elif self.decoder_type == 'multivariate_gaussian':
+            seq = torch.nn.Sequential(decoder, Lambda(lambda x: x.view(x.shape[0], -1)))
+            self.decoder = DeepMultivariateNormal(seq, np.prod(self.img_shape), np.prod(self.img_shape))
+        elif self.decoder_type == 'sharedvar_multivariate_gaussian':
+            seq = torch.nn.Sequential(decoder, Lambda(lambda x: x.view(x.shape[0], -1)))
+            self.decoder = DeepMultivariateNormal(seq, np.prod(self.img_shape), np.prod(self.img_shape))
+
+            torch.nn.init.zeros_(self.decoder.logdiag_head.weight)
+            self.decoder.logdiag_head.weight.requires_grad = False
+
+            torch.nn.init.zeros_(self.decoder.lower_head.weight)
+            self.decoder.lower_head.weight.requires_grad = False
+
+            torch.nn.init.normal_(self.decoder.logdiag_head.bias, self.logstd_init, 1e-1)
+            self.decoder.logdiag_head.bias.requires_grad = True
+        elif self.decoder_type == 'lowrank_multivariate_gaussian':
+            seq = torch.nn.Sequential(decoder, Lambda(lambda x: x.view(x.shape[0], -1)))
+            self.decoder = DeepLowRankMultivariateNormal(seq, np.prod(self.img_shape), np.prod(self.img_shape), decoder_cov_rank)
+        elif self.decoder_type == 'sharedvar_lowrank_multivariate_gaussian':
+            seq = torch.nn.Sequential(decoder, Lambda(lambda x: x.view(x.shape[0], -1)))
+            self.decoder = DeepLowRankMultivariateNormal(seq, np.prod(self.img_shape), np.prod(self.img_shape), decoder_cov_rank)
+
+            torch.nn.init.zeros_(self.decoder.logdiag_head.weight)
+            self.decoder.logdiag_head.weight.requires_grad = False
+
+            torch.nn.init.zeros_(self.decoder.factor_head.weight)
+            self.decoder.factor_head.weight.requires_grad = False
+
+            torch.nn.init.normal_(self.decoder.logdiag_head.bias, self.logstd_init, 1e-1)
+            self.decoder.logdiag_head.bias.requires_grad = True
+        else:
+            raise ValueError('unknown decoder type: {}'.format(self.decoder_type))
+
+        # encoder parts
+        self.encoder = Encoder(self.hidden_dim)
+
+        # TODO: do we need to replicate the PGM here to be able to run conterfactuals? oO
+        latent_layers = torch.nn.Sequential(torch.nn.Linear(self.hidden_dim + self.context_dim, self.hidden_dim), torch.nn.ReLU())
+        self.latent_encoder = DeepIndepNormal(latent_layers, self.hidden_dim, self.latent_dim)
+
     def _get_preprocess_transforms(self):
         return super()._get_preprocess_transforms().inv
+
+    def _get_transformed_x_dist(self, latent):
+        x_pred_dist = self.decoder.predict(latent)
+        x_base_dist = Normal(self.x_base_loc, self.x_base_scale).to_event(3)
+
+        preprocess_transform = self._get_preprocess_transforms()
+
+        if isinstance(x_pred_dist, MultivariateNormal) or isinstance(x_pred_dist, LowRankMultivariateNormal):
+            chol_transform = LowerCholeskyAffine(x_pred_dist.loc, x_pred_dist.scale_tril)
+            reshape_transform = ReshapeTransform(self.img_shape, (np.prod(self.img_shape), ))
+            x_reparam_transform = ComposeTransform([reshape_transform, chol_transform, reshape_transform.inv])
+        elif isinstance(x_pred_dist, Independent):
+            x_pred_dist = x_pred_dist.base_dist
+            x_reparam_transform = AffineTransform(x_pred_dist.loc, x_pred_dist.scale, 3)
+
+        return TransformedDistribution(x_base_dist, ComposeTransform([x_reparam_transform, preprocess_transform]))
 
     @pyro_method
     def guide(self, x, thickness, intensity):
@@ -150,6 +258,11 @@ class BaseVISEM(BaseSEM):
         parser.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (default: %(default)s)")
         parser.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (default: %(default)s)")
         parser.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (default: %(default)s)")
+        parser.add_argument(
+            '--decoder_type', default='fixed_var', help="var type (default: %(default)s)",
+            choices=['fixed_var', 'learned_var', 'independent_gaussian', 'sharedvar_multivariate_gaussian', 'multivariate_gaussian',
+                     'sharedvar_lowrank_multivariate_gaussian', 'lowrank_multivariate_gaussian'])
+        parser.add_argument('--decoder_cov_rank', default=10, type=int, help="rank for lowrank cov approximation (requires lowrank decoder) (default: %(default)s)")  # noqa: E501
 
         return parser
 
@@ -282,11 +395,6 @@ class SVIExperiment(BaseCovariateExperiment):
         metrics = self.get_trace_metrics(batch)
 
         return {'loss': loss, **metrics}
-
-    def validation_epoch_end(self, outputs):
-        self.logger.experiment.add_scalar('decoder/decoder_logstd', self.pyro_model.decoder_logstd,  self.current_epoch)
-
-        return super().validation_epoch_end(outputs)
 
     def test_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)

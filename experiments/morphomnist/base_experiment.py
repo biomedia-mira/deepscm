@@ -424,7 +424,7 @@ class BaseCovariateExperiment(PyroExperiment):
     @classmethod
     def add_arguments(cls, parser):
         parser.add_argument(
-            '--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/thickness_intensity/2/", type=str, help="data dir (default: %(default)s)")
+            '--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/thickness_intensity/2_scale05/", type=str, help="data dir (default: %(default)s)")
         parser.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
         parser.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
         parser.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
