@@ -1,5 +1,8 @@
 import torch
-from pyro.distributions import Bernoulli, Beta, Gamma, Independent, MultivariateNormal, Normal, TorchDistribution
+from pyro.distributions import (
+    Bernoulli, Beta, Gamma, Independent, MultivariateNormal,
+    Normal, TorchDistribution, LowRankMultivariateNormal
+)
 from torch import nn
 
 from distributions.params import MixtureParams
@@ -85,6 +88,31 @@ class DeepMultivariateNormal(DeepConditional):
     def predict(self, x) -> MultivariateNormal:
         mean, scale_tril = self(x)
         return MultivariateNormal(mean, scale_tril=scale_tril)
+
+
+class DeepLowRankMultivariateNormal(DeepConditional):
+    def __init__(self, backbone: nn.Module, hidden_dim: int, latent_dim: int, rank: int):
+        super().__init__()
+        self.backbone = backbone
+
+        self.latent_dim = latent_dim
+        self.rank = rank
+
+        self.mean_head = nn.Linear(hidden_dim, latent_dim)
+        self.factor_head = nn.Linear(hidden_dim, latent_dim * rank)
+        self.logdiag_head = nn.Linear(hidden_dim, latent_dim)
+
+    def forward(self, x):
+        h = self.backbone(x)
+        mean = self.mean_head(h)
+        diag = self.logdiag_head(h).exp()
+        factors = self.factor_head(h).view(x.shape[0], self.latent_dim, self.rank)
+
+        return mean, diag, factors
+
+    def predict(self, x) -> LowRankMultivariateNormal:
+        mean, diag, factors = self(x)
+        return LowRankMultivariateNormal(mean, factors, diag)
 
 
 class MixtureSIN(DeepConditional):
