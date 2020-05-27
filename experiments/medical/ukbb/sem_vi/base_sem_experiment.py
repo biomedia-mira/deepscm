@@ -186,13 +186,17 @@ class BaseVISEM(BaseSEM):
         super().__setattr__(name, value)
 
         if name == 'age_flow_lognorm_loc':
-            self.thickness_flow_lognorm.loc = self.age_flow_lognorm_loc.item()
+            self.age_flow_lognorm.loc = self.age_flow_lognorm_loc.item()
         elif name == 'age_flow_lognorm_scale':
-            self.thickness_flow_lognorm.scale = self.age_flow_lognorm_scale.item()
-        elif name == 'intensity_flow_norm_loc':
-            self.intensity_flow_norm.loc = self.intensity_flow_norm_loc.item()
-        elif name == 'intensity_flow_norm_scale':
-            self.intensity_flow_norm.scale = self.intensity_flow_norm_scale.item()
+            self.age_flow_lognorm.scale = self.age_flow_lognorm_scale.item()
+        elif name == 'ventricle_volume_flow_lognorm_loc':
+            self.ventricle_volume_flow_lognorm.loc = self.ventricle_volume_flow_lognorm_loc.item()
+        elif name == 'ventricle_volume_flow_lognorm_scale':
+            self.ventricle_volume_flow_lognorm.scale = self.ventricle_volume_flow_lognorm_scale.item()
+        elif name == 'brain_volume_flow_lognorm_loc':
+            self.brain_volume_flow_lognorm.loc = self.brain_volume_flow_lognorm_loc.item()
+        elif name == 'brain_volume_flow_lognorm_scale':
+            self.brain_volume_flow_lognorm.scale = self.brain_volume_flow_lognorm_scale.item()
 
     def _get_preprocess_transforms(self):
         return super()._get_preprocess_transforms().inv

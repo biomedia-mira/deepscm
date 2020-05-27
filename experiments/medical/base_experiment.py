@@ -207,6 +207,9 @@ class BaseCovariateExperiment(pl.LightningModule):
         self.test_loader = DataLoader(self.ukbb_test, batch_size=self.test_batch_size, shuffle=False)
         return self.test_loader
 
+    def forward(self, *args, **kwargs):
+        pass
+
     def prep_batch(self, batch):
         raise NotImplementedError()
 
