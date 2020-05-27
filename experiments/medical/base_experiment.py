@@ -11,7 +11,7 @@ from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, Af
 
 import torchvision.utils
 from torch.utils.data import DataLoader
-from experiments import PyroExperiment
+import pytorch_lightning as pl
 import torch
 import numpy as np
 
@@ -135,7 +135,7 @@ class BaseSEM(PyroModule):
         return parser
 
 
-class BaseCovariateExperiment(PyroExperiment):
+class BaseCovariateExperiment(pl.LightningModule):
     def __init__(self, hparams, pyro_model: BaseSEM):
         super().__init__()
 
@@ -179,14 +179,14 @@ class BaseCovariateExperiment(PyroExperiment):
         self.ventricle_volume_range = ventricle_volumes.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.age_flow_lognorm.loc = self.ukbb_train.metrics['age'].log().mean().to(self.torch_device).float()
-        self.pyro_model.age_flow_lognorm.scale = self.ukbb_train.metrics['age'].log().std().to(self.torch_device).float()
+        self.pyro_model.age_flow_lognorm_loc += (self.ukbb_train.metrics['age'].log().mean().to(self.torch_device).float())
+        self.pyro_model.age_flow_lognorm_scale *= (self.ukbb_train.metrics['age'].log().std().to(self.torch_device).float())
 
-        self.pyro_model.ventricle_volume_flow_lognorm.loc = self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.torch_device).float()
-        self.pyro_model.ventricle_volume_flow_lognorm.scale = self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.torch_device).float()
+        self.pyro_model.ventricle_volume_flow_lognorm_loc += (self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.torch_device).float())
+        self.pyro_model.ventricle_volume_flow_lognorm_scale *= (self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.torch_device).float())
 
-        self.pyro_model.brain_volume_flow_lognorm.loc = self.ukbb_train.metrics['brain_volume'].log().mean().to(self.torch_device).float()
-        self.pyro_model.brain_volume_flow_lognorm.scale = self.ukbb_train.metrics['brain_volume'].log().std().to(self.torch_device).float()
+        self.pyro_model.brain_volume_flow_lognorm_loc += (self.ukbb_train.metrics['brain_volume'].log().mean().to(self.torch_device).float())
+        self.pyro_model.brain_volume_flow_lognorm_scale *= (self.ukbb_train.metrics['brain_volume'].log().std().to(self.torch_device).float())
 
         if self.hparams.validate:
             print(f'set ventricle_volume_flow_lognorm {self.pyro_model.ventricle_volume_flow_lognorm.loc} +/- {self.pyro_model.ventricle_volume_flow_lognorm.scale}')  # noqa: E501

@@ -160,18 +160,39 @@ class BaseVISEM(BaseSEM):
         self.register_buffer('x_base_loc', torch.zeros(self.img_shape, requires_grad=False))
         self.register_buffer('x_base_scale', torch.ones(self.img_shape, requires_grad=False))
 
+        self.register_buffer('age_flow_lognorm_loc', torch.zeros([], requires_grad=False))
+        self.register_buffer('age_flow_lognorm_scale', torch.ones([], requires_grad=False))
+
+        self.register_buffer('ventricle_volume_flow_lognorm_loc', torch.zeros([], requires_grad=False))
+        self.register_buffer('ventricle_volume_flow_lognorm_scale', torch.ones([], requires_grad=False))
+
+        self.register_buffer('brain_volume_flow_lognorm_loc', torch.zeros([], requires_grad=False))
+        self.register_buffer('brain_volume_flow_lognorm_scale', torch.ones([], requires_grad=False))
+
         # age flow
         self.age_flow_components = ComposeTransformModule([Spline(1)])
-        self.age_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.age_flow_lognorm = AffineTransform(loc=self.age_flow_lognorm_loc.item(), scale=self.age_flow_lognorm_scale.item())
         self.age_flow_constraint_transforms = ComposeTransform([self.age_flow_lognorm, ExpTransform()])
         self.age_flow_transforms = ComposeTransform([self.age_flow_components, self.age_flow_constraint_transforms])
 
         # other flows shared components
-        self.ventricle_volume_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.ventricle_volume_flow_lognorm = AffineTransform(loc=self.ventricle_volume_flow_lognorm_loc.item(), scale=self.ventricle_volume_flow_lognorm_scale.item())  # noqa: E501
         self.ventricle_volume_flow_constraint_transforms = ComposeTransform([self.ventricle_volume_flow_lognorm, ExpTransform()])
 
-        self.brain_volume_flow_lognorm = AffineTransform(loc=0., scale=1.)
+        self.brain_volume_flow_lognorm = AffineTransform(loc=self.brain_volume_flow_lognorm_loc.item(), scale=self.brain_volume_flow_lognorm_scale.item())
         self.brain_volume_flow_constraint_transforms = ComposeTransform([self.brain_volume_flow_lognorm, ExpTransform()])
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+
+        if name == 'age_flow_lognorm_loc':
+            self.thickness_flow_lognorm.loc = self.age_flow_lognorm_loc.item()
+        elif name == 'age_flow_lognorm_scale':
+            self.thickness_flow_lognorm.scale = self.age_flow_lognorm_scale.item()
+        elif name == 'intensity_flow_norm_loc':
+            self.intensity_flow_norm.loc = self.intensity_flow_norm_loc.item()
+        elif name == 'intensity_flow_norm_scale':
+            self.intensity_flow_norm.scale = self.intensity_flow_norm_scale.item()
 
     def _get_preprocess_transforms(self):
         return super()._get_preprocess_transforms().inv
@@ -302,6 +323,9 @@ class SVIExperiment(BaseCovariateExperiment):
         else:
             self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
         self.svi.loss_class = loss
+
+    def backward(self, *args, **kwargs):
+        pass  # No loss to backpropagate since we're using Pyro's optimisation machinery
 
     def print_trace_updates(self, batch):
         with torch.no_grad():
