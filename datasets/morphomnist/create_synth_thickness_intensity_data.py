@@ -18,21 +18,21 @@ def get_intensity(img):
 
     img_min, img_max = img.min(), img.max()
     mask = (img >= img_min + (img_max - img_min) * threshold)
-    avg_intensity = img[mask].mean()
+    avg_intensity = np.median(img[mask])
 
     return avg_intensity
 
 
 def model(n_samples=None, scale=2., invert=False):
     with pyro.plate('observations', n_samples):
-        thickness = pyro.sample('thickness', Gamma(10., 5.))
+        thickness = 0.5 + pyro.sample('thickness', Gamma(10., 5.))
 
         if invert:
             loc = (thickness - 2) * -2
         else:
             loc = (thickness - 2.5) * 2
 
-        transforms = ComposeTransform([SigmoidTransform(), AffineTransform(64, 195)])
+        transforms = ComposeTransform([SigmoidTransform(), AffineTransform(64, 191)])
 
         intensity = pyro.sample('intensity', TransformedDistribution(Normal(loc, 0.5), transforms))
 
