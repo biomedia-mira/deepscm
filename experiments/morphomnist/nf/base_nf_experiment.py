@@ -6,7 +6,6 @@ import numpy as np
 from pyro.nn import pyro_method
 
 from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
-from experiments import PyroExperiment
 
 from typing import Mapping
 
@@ -74,12 +73,6 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
             {'params': thickness_params, 'lr': self.hparams.pgm_lr},
             {'params': intensity_params, 'lr': self.hparams.pgm_lr},
         ], lr=self.hparams.lr, eps=1e-5, amsgrad=self.hparams.use_amsgrad, weight_decay=self.hparams.l2)
-
-    def _get_parameters(self, *args, **kwargs):
-        return super(PyroExperiment, self)._get_parameters(*args, **kwargs)
-
-    def backward(self, *args, **kwargs):
-        return super(PyroExperiment, self).backward(*args, **kwargs)
 
     def prepare_data(self):
         super().prepare_data()

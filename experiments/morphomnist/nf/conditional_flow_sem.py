@@ -8,7 +8,7 @@ from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.conditional import ConditionalTransformedDistribution
 from pyro.distributions.transforms import (
     Spline, ExpTransform, ComposeTransform, ConditionalAffineCoupling,
-    GeneralizedChannelPermute, AffineTransform, SigmoidTransform
+    GeneralizedChannelPermute, SigmoidTransform
 )
 from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
 from distributions.transforms.affine import ConditionalAffineTransform
@@ -28,14 +28,12 @@ class ConditionalFlowSEM(BaseFlowSEM):
 
         # Flow for modelling t Gamma
         self.thickness_flow_components = ComposeTransformModule([Spline(1)])
-        self.thickness_flow_lognorm = AffineTransform(loc=0., scale=1.)
         self.thickness_flow_constraint_transforms = ComposeTransform([self.thickness_flow_lognorm, ExpTransform()])
         self.thickness_flow_transforms = ComposeTransform([self.thickness_flow_components, self.thickness_flow_constraint_transforms])
 
         # affine flow for s normal
         intensity_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
         self.intensity_flow_components = ConditionalAffineTransform(context_nn=intensity_net, event_dim=0)
-        self.intensity_flow_norm = AffineTransform(loc=0., scale=1.)
         self.intensity_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.intensity_flow_norm])
         self.intensity_flow_transforms = [self.intensity_flow_components, self.intensity_flow_constraint_transforms]
         # build flow as s_affine_w * t * e_s + b -> depends on t though

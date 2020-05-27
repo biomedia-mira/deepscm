@@ -4,7 +4,7 @@ import pyro
 from pyro.nn import pyro_method
 from pyro.distributions import Normal, TransformedDistribution
 from pyro.distributions.transforms import (
-    ComposeTransform, AffineTransform, ExpTransform, Spline, SigmoidTransform
+    ComposeTransform, ExpTransform, Spline, SigmoidTransform
 )
 from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.conditional import ConditionalTransformedDistribution
@@ -22,14 +22,12 @@ class ConditionalVISEM(BaseVISEM):
 
         # Flow for modelling t Gamma
         self.thickness_flow_components = ComposeTransformModule([Spline(1)])
-        self.thickness_flow_lognorm = AffineTransform(loc=0., scale=1.)
         self.thickness_flow_constraint_transforms = ComposeTransform([self.thickness_flow_lognorm, ExpTransform()])
         self.thickness_flow_transforms = ComposeTransform([self.thickness_flow_components, self.thickness_flow_constraint_transforms])
 
         # affine flow for s normal
         intensity_net = DenseNN(1, [1], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
         self.intensity_flow_components = ConditionalAffineTransform(context_nn=intensity_net, event_dim=0)
-        self.intensity_flow_norm = AffineTransform(loc=0., scale=1.)
         self.intensity_flow_constraint_transforms = ComposeTransform([SigmoidTransform(), self.intensity_flow_norm])
         self.intensity_flow_transforms = [self.intensity_flow_components, self.intensity_flow_constraint_transforms]
 

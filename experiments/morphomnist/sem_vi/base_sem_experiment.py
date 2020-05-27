@@ -256,7 +256,7 @@ class BaseVISEM(BaseSEM):
     def add_arguments(cls, parser):
         parser = super().add_arguments(parser)
 
-        parser.add_argument('--latent_dim', default=10, type=int, help="latent dimension of model (default: %(default)s)")
+        parser.add_argument('--latent_dim', default=16, type=int, help="latent dimension of model (default: %(default)s)")
         parser.add_argument('--hidden_dim', default=100, type=int, help="hidden dimension of model (default: %(default)s)")
         parser.add_argument('--logstd_init', default=-5, type=float, help="init of logstd (default: %(default)s)")
         parser.add_argument(
@@ -296,6 +296,9 @@ class SVIExperiment(BaseCovariateExperiment):
         else:
             self.svi = SVI(self.pyro_model.svi_model, self.pyro_model.svi_guide, Adam(per_param_callable), loss)
         self.svi.loss_class = loss
+
+    def backward(self, *args, **kwargs):
+        pass  # No loss to backpropagate since we're using Pyro's optimisation machinery
 
     def print_trace_updates(self, batch):
         print('Traces:\n' + ('#' * 10))

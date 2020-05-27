@@ -11,7 +11,7 @@ from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, Af
 
 import torchvision.utils
 from torch.utils.data import DataLoader, random_split
-from experiments import PyroExperiment
+import pytorch_lightning as pl
 import torch
 import numpy as np
 
@@ -32,6 +32,27 @@ class BaseSEM(PyroModule):
         super().__init__()
 
         self.preprocessing = preprocessing
+
+        self.register_buffer('thickness_flow_lognorm_loc', torch.zeros([], requires_grad=False))
+        self.register_buffer('thickness_flow_lognorm_scale', torch.ones([], requires_grad=False))
+
+        self.register_buffer('intensity_flow_norm_loc', torch.zeros([], requires_grad=False))
+        self.register_buffer('intensity_flow_norm_scale', torch.ones([], requires_grad=False))
+
+        self.thickness_flow_lognorm = AffineTransform(loc=self.thickness_flow_lognorm_loc.item(), scale=self.thickness_flow_lognorm_scale.item())
+        self.intensity_flow_norm = AffineTransform(loc=self.intensity_flow_norm_loc.item(), scale=self.intensity_flow_norm_scale.item())
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, value)
+
+        if name == 'thickness_flow_lognorm_loc':
+            self.thickness_flow_lognorm.loc = self.thickness_flow_lognorm_loc.item()
+        elif name == 'thickness_flow_lognorm_scale':
+            self.thickness_flow_lognorm.scale = self.thickness_flow_lognorm_scale.item()
+        elif name == 'intensity_flow_norm_loc':
+            self.intensity_flow_norm.loc = self.intensity_flow_norm_loc.item()
+        elif name == 'intensity_flow_norm_scale':
+            self.intensity_flow_norm.scale = self.intensity_flow_norm_scale.item()
 
     def _get_preprocess_transforms(self):
         alpha = 0.05
@@ -142,7 +163,7 @@ class BaseSEM(PyroModule):
         return parser
 
 
-class BaseCovariateExperiment(PyroExperiment):
+class BaseCovariateExperiment(pl.LightningModule):
     def __init__(self, hparams, pyro_model: BaseSEM):
         super().__init__()
 
@@ -206,11 +227,13 @@ class BaseCovariateExperiment(PyroExperiment):
         self.intensity_range = intensity.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.intensity_flow_norm.loc = mnist_train.metrics['intensity'].min().to(self.torch_device).float()
-        self.pyro_model.intensity_flow_norm.scale = (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.torch_device).float()  # noqa: E501
+        self.pyro_model.intensity_flow_norm_loc += mnist_train.metrics['intensity'].min().to(self.torch_device).float()
+        self.pyro_model.intensity_flow_norm_scale *= (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.torch_device).float()  # noqa: E501
 
-        self.pyro_model.thickness_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.torch_device).float()
-        self.pyro_model.thickness_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.torch_device).float()
+        self.pyro_model.thickness_flow_lognorm_loc += mnist_train.metrics['thickness'].log().mean().to(self.torch_device).float()
+        self.pyro_model.thickness_flow_lognorm_scale *= mnist_train.metrics['thickness'].log().std().to(self.torch_device).float()
+
+        print(f'set thickness_flow_lognorm.loc to {self.pyro_model.thickness_flow_lognorm.loc}')
 
     def configure_optimizers(self):
         pass
@@ -225,6 +248,9 @@ class BaseCovariateExperiment(PyroExperiment):
     def test_dataloader(self):
         self.test_loader = DataLoader(self.mnist_test, batch_size=self.test_batch_size, shuffle=False)
         return self.test_loader
+
+    def forward(self, *args, **kwargs):
+        pass
 
     def prep_batch(self, batch):
         raise NotImplementedError()
@@ -243,7 +269,9 @@ class BaseCovariateExperiment(PyroExperiment):
         if self.current_epoch % self.hparams.sample_img_interval == 0:
             self.sample_images()
 
-        return {'val_loss': metrics['val/loss'], 'log': metrics}
+        val_loss = metrics['val/loss'] if isinstance(metrics['val/loss'], torch.Tensor) else torch.tensor(metrics['val/loss'])
+
+        return {'val_loss': val_loss, 'log': metrics}
 
     def test_epoch_end(self, outputs):
         print('Assembling outputs')
@@ -555,13 +583,13 @@ class BaseCovariateExperiment(PyroExperiment):
     @classmethod
     def add_arguments(cls, parser):
         parser.add_argument(
-            '--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/thickness_intensity/2_scale05/", type=str, help="data dir (default: %(default)s)")
+            '--data_dir', default="/vol/biomedic2/np716/data/gemini/synthetic/thickness_intensity/all_fixed_scale05/", type=str, help="data dir (default: %(default)s)")  # noqa: E501
         parser.add_argument('--sample_img_interval', default=10, type=int, help="interval in which to sample and log images (default: %(default)s)")
         parser.add_argument('--train_batch_size', default=256, type=int, help="train batch size (default: %(default)s)")
         parser.add_argument('--test_batch_size', default=256, type=int, help="test batch size (default: %(default)s)")
         parser.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
         parser.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
-        parser.add_argument('--pgm_lr', default=1e-2, type=float, help="lr of pgm (default: %(default)s)")
+        parser.add_argument('--pgm_lr', default=5e-3, type=float, help="lr of pgm (default: %(default)s)")
         parser.add_argument('--l2', default=0., type=float, help="weight decay (default: %(default)s)")
         parser.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad? (default: %(default)s)")
 
