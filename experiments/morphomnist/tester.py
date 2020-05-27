@@ -7,6 +7,7 @@ import inspect
 
 if __name__ == '__main__':
     from pytorch_lightning import Trainer
+    from experiments import _clone_param_store, _compare_param_dicts
     import argparse
     import os
 
@@ -28,9 +29,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args(other_args)
 
-    if args.gpus is not None and isinstance(args.gpus, str):
+    if args.gpus is not None and isinstance(args.gpus, int):
         # Make sure that it only uses a single GPU..
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpus)
         args.gpus = 1
 
     # TODO: push to lightning
@@ -51,16 +52,27 @@ if __name__ == '__main__':
 
     hparams = torch.load(checkpoint_path)['hparams']
 
+    print(f'found hparams: {hparams}')
+
     model_class = MODEL_REGISTRY[hparams['model']]
 
     model_params = {
         k: v for k, v in hparams.items() if (k in inspect.signature(model_class.__init__).parameters
-                                             or k in k in inspect.signature(model_class.__bases__[0].__init__).parameters)
+                                             or k in k in inspect.signature(model_class.__bases__[0].__init__).parameters
+                                             or k in k in inspect.signature(model_class.__bases__[0].__bases__[0].__init__).parameters)
     }
+
+    print(f'building model with params: {model_params}')
 
     model = model_class(**model_params)
 
+    before_param_store = _clone_param_store()
+
     experiment = exp_class.load_from_checkpoint(checkpoint_path, pyro_model=model)
+
+    after_param_store = _clone_param_store()
+
+    _compare_param_dicts(before_param_store, after_param_store)
 
     print(f'Loaded {experiment.__class__}:\n{experiment}')
 

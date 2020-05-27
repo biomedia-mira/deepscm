@@ -30,9 +30,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args(other_args)
 
-    if args.gpus is not None:
+    if args.gpus is not None and isinstance(args.gpus, int):
         # Make sure that it only uses a single GPU..
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpus)
         args.gpus = 1
 
     # TODO: push to lightning
@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
     lightning_args = groups['lightning_options']
 
-    logger = TensorBoardLogger(lightning_args.default_save_path, name=f'{exp_args.experiment}/{exp_args.model}')
+    logger = TensorBoardLogger(lightning_args.default_root_dir, name=f'{exp_args.experiment}/{exp_args.model}')
     lightning_args.logger = logger
 
     hparams = groups['experiment']
