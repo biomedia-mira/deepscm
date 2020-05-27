@@ -172,7 +172,7 @@ class BaseCovariateExperiment(PyroExperiment):
             torch.autograd.set_detect_anomaly(self.hparams.validate)
             pyro.enable_validation()
 
-    def measure_image(self, x, normalize=False, threshold=0.3):
+    def measure_image(self, x, normalize=False, threshold=0.5):
         imgs = x.detach().cpu().numpy()[:, 0]
 
         if normalize:
@@ -186,7 +186,7 @@ class BaseCovariateExperiment(PyroExperiment):
             img_min, img_max = imgs.min(axis=(1, 2), keepdims=True), imgs.max(axis=(1, 2), keepdims=True)
             mask = (imgs >= img_min + (img_max - img_min) * threshold)
 
-            return np.array([i[m].mean() for i, m in zip(imgs, mask)])
+            return np.array([np.median(i[m]) for i, m in zip(imgs, mask)])
 
         return measurements['thickness'].values, get_intensity(imgs, threshold)
 
@@ -199,18 +199,21 @@ class BaseCovariateExperiment(PyroExperiment):
         num_train = len(mnist_train) - num_val
         self.mnist_train, self.mnist_val = random_split(mnist_train, [num_train, num_val])
 
-        self.device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
-        thicknesses = 1. + torch.arange(3, dtype=torch.float, device=self.device)
+        self.torch_device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
+        thicknesses = 1. + torch.arange(3, dtype=torch.float, device=self.torch_device)
         self.thickness_range = thicknesses.repeat(3).unsqueeze(1)
-        intensity = 48 * torch.arange(3, dtype=torch.float, device=self.device) + 64
+        intensity = 48 * torch.arange(3, dtype=torch.float, device=self.torch_device) + 64
         self.intensity_range = intensity.repeat_interleave(3).unsqueeze(1)
-        self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.device, dtype=torch.float).repeat((9, 1))
+        self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.intensity_flow_norm.loc = mnist_train.metrics['intensity'].min().to(self.device).float()
-        self.pyro_model.intensity_flow_norm.scale = (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.device).float()
+        self.pyro_model.intensity_flow_norm.loc = mnist_train.metrics['intensity'].min().to(self.torch_device).float()
+        self.pyro_model.intensity_flow_norm.scale = (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.torch_device).float()  # noqa: E501
 
-        self.pyro_model.thickness_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.device).float()
-        self.pyro_model.thickness_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.device).float()
+        self.pyro_model.thickness_flow_lognorm.loc = mnist_train.metrics['thickness'].log().mean().to(self.torch_device).float()
+        self.pyro_model.thickness_flow_lognorm.scale = mnist_train.metrics['thickness'].log().std().to(self.torch_device).float()
+
+    def configure_optimizers(self):
+        pass
 
     def train_dataloader(self):
         return DataLoader(self.mnist_train, batch_size=self.train_batch_size, shuffle=True)
@@ -233,11 +236,9 @@ class BaseCovariateExperiment(PyroExperiment):
         raise NotImplementedError()
 
     def validation_epoch_end(self, outputs):
-        num_items = len(outputs)
-        metrics = {('val/' + k): v / num_items for k, v in outputs[0].items()}
-        for r in outputs[1:]:
-            for k, v in r.items():
-                metrics[('val/' + k)] += v / num_items
+        outputs = self.assemble_epoch_end_outputs(outputs)
+
+        metrics = {('val/' + k): v for k, v in outputs.items()}
 
         if self.current_epoch % self.hparams.sample_img_interval == 0:
             self.sample_images()
@@ -245,13 +246,143 @@ class BaseCovariateExperiment(PyroExperiment):
         return {'val_loss': metrics['val/loss'], 'log': metrics}
 
     def test_epoch_end(self, outputs):
-        num_items = len(outputs)
-        metrics = {('test/' + k): v / num_items for k, v in outputs[0].items()}
-        for r in outputs[1:]:
-            for k, v in r.items():
-                metrics[('test/' + k)] += v / num_items
+        print('Assembling outputs')
+        outputs = self.assemble_epoch_end_outputs(outputs)
+
+        samples = outputs.pop('samples')
+
+        sample_trace = pyro.poutine.trace(self.pyro_model.sample).get_trace(self.hparams.test_batch_size)
+        samples['unconditional_samples'] = {
+            'x': sample_trace.nodes['x']['value'],
+            'thickness': sample_trace.nodes['thickness']['value'],
+            'intensity': sample_trace.nodes['intensity']['value']
+        }
+
+        cond_data = {
+            'thickness': self.thickness_range.repeat(self.hparams.test_batch_size, 1),
+            'intensity': self.intensity_range.repeat(self.hparams.test_batch_size, 1),
+            'z': torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9 * self.hparams.test_batch_size, 1))
+        }
+        sample_trace = pyro.poutine.trace(pyro.condition(self.pyro_model.sample, data=cond_data)).get_trace(9 * self.hparams.test_batch_size)
+        samples['conditional_samples'] = {
+            'x': sample_trace.nodes['x']['value'],
+            'thickness': sample_trace.nodes['thickness']['value'],
+            'intensity': sample_trace.nodes['intensity']['value']
+        }
+
+        print(f'Got samples: {tuple(samples.keys())}')
+
+        metrics = {('test/' + k): v for k, v in outputs.items()}
+
+        for k, v in samples.items():
+            measured_thickness, measured_intensity = self.measure_image(v['x'])
+
+            p = os.path.join(self.trainer.logger.experiment.log_dir, f'{k}.pt')
+
+            obj = {'measured_thickness': measured_thickness, 'measured_intensity': measured_intensity, **v}
+
+            print(f'Saving samples for {k} to {p}')
+
+            torch.save(obj, p)
+
+        p = os.path.join(self.trainer.logger.experiment.log_dir, 'metrics.pt')
+        torch.save(metrics, p)
+
+        prob_maps = self.build_prob_maps()
+        p = os.path.join(self.trainer.logger.experiment.log_dir, 'prob_maps.pt')
+        torch.save(prob_maps, p)
 
         return {'test_loss': metrics['test/loss'], 'log': metrics}
+
+    def assemble_epoch_end_outputs(self, outputs):
+        num_items = len(outputs)
+
+        def handle_row(batch, assembled=None):
+            if assembled is None:
+                assembled = {}
+
+            for k, v in batch.items():
+                if k not in assembled.keys():
+                    if isinstance(v, dict):
+                        assembled[k] = handle_row(v)
+                    elif isinstance(v, float):
+                        assembled[k] = v
+                    elif np.prod(v.shape) == 1:
+                        assembled[k] = v.cpu()
+                    else:
+                        assembled[k] = v.cpu()
+                else:
+                    if isinstance(v, dict):
+                        assembled[k] = handle_row(v, assembled[k])
+                    elif isinstance(v, float):
+                        assembled[k] += v
+                    elif np.prod(v.shape) == 1:
+                        assembled[k] += v.cpu()
+                    else:
+                        assembled[k] = torch.cat([assembled[k], v], 0).cpu()
+
+            return assembled
+
+        assembled = {}
+        for _, batch in enumerate(outputs):
+            assembled = handle_row(batch, assembled)
+
+        for k, v in assembled.items():
+            if (hasattr(v, 'shape') and np.prod(v.shape) == 1) or isinstance(v, float):
+                assembled[k] /= num_items
+
+        return assembled
+
+    def get_counterfactual_conditions(self, batch):
+        counterfactuals = {
+            'do(thickness=1.5)': {'thickness': torch.ones_like(batch['thickness']) * 1.5},
+            'do(thickness=5)': {'thickness': torch.ones_like(batch['thickness']) * 5},
+            'do(intensity=64)': {'intensity': torch.ones_like(batch['intensity']) * 64},
+            'do(intensity=224)': {'intensity': torch.ones_like(batch['intensity']) * 224},
+            'do(thickness=1.5, intensity=224)': {'thickness': torch.ones_like(batch['thickness']) * 1.5, 'intensity': torch.ones_like(batch['intensity']) * 224},
+            'do(thickness=5, intensity=64)': {'thickness': torch.ones_like(batch['thickness']) * 5, 'intensity': torch.ones_like(batch['intensity']) * 64}
+        }
+
+        return counterfactuals
+
+    def build_test_samples(self, batch):
+        samples = {}
+        samples['reconstruction'] = {'x': self.pyro_model.reconstruct(**batch, num_particles=self.hparams.num_sample_particles)}
+
+        counterfactuals = self.get_counterfactual_conditions(batch)
+
+        for name, condition in counterfactuals.items():
+            samples[name] = self.pyro_model._gen_counterfactual(obs=batch, condition=condition)
+
+        return samples
+
+    def build_prob_maps(self):
+        prob_maps = {}
+
+        def sample_pgm(num_samples):
+            with pyro.plate('observations', num_samples):
+                return self.pyro_model.pgm_model()
+
+        intensity_range = torch.arange(64, 255, 1, device=self.torch_device, dtype=torch.float)
+        thickness_range = torch.arange(1, 5, 0.1, device=self.torch_device, dtype=torch.float)
+
+        num_intensity = intensity_range.shape[0]
+        num_thickness = thickness_range.shape[0]
+
+        intensity_range = intensity_range.repeat(num_thickness).unsqueeze(1)
+        thickness_range = thickness_range.repeat_interleave(num_intensity).unsqueeze(1)
+
+        cond_data = {
+            'thickness': thickness_range,
+            'intensity': intensity_range
+        }
+
+        trace = pyro.poutine.trace(pyro.condition(sample_pgm, data=cond_data)).get_trace(len(intensity_range))
+        trace.compute_log_prob()
+
+        prob_maps['base_distribution'] = {'log_prob': trace.nodes['thickness']['log_prob'] + trace.nodes['intensity']['log_prob'], **cond_data}
+
+        return prob_maps
 
     def log_img_grid(self, tag, imgs, normalize=True, save_img=False, **kwargs):
         if save_img:
@@ -263,7 +394,7 @@ class BaseCovariateExperiment(PyroExperiment):
     def get_batch(self, loader):
         batch = next(iter(self.val_loader))
         if self.trainer.on_gpu:
-            batch = self.trainer.transfer_batch_to_gpu(batch, self.device)
+            batch = self.trainer.transfer_batch_to_gpu(batch, self.torch_device)
         return batch
 
     def log_kdes(self, tag, data, save_img=False):

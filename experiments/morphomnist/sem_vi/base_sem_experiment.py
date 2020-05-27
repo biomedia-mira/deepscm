@@ -246,6 +246,7 @@ class BaseVISEM(BaseSEM):
             z = pyro.sample('z', z_dist)
 
             exogeneous = self.infer_exogeneous(z=z, **obs)
+            exogeneous = {k: v.detach() for k, v in exogeneous.items()}
             exogeneous['z'] = z
             counter = pyro.poutine.do(pyro.poutine.condition(self.sample_scm, data=exogeneous), data=condition)(obs['x'].shape[0])
             counterfactuals += [counter]
@@ -403,7 +404,9 @@ class SVIExperiment(BaseCovariateExperiment):
 
         metrics = self.get_trace_metrics(batch)
 
-        return {'loss': loss, **metrics}
+        samples = self.build_test_samples(batch)
+
+        return {'loss': loss, **metrics, 'samples': samples}
 
     @classmethod
     def add_arguments(cls, parser):
