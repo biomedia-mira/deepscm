@@ -58,7 +58,7 @@ class BaseVISEM(BaseSEM):
                  num_convolutions: int = 2, use_upconv: bool = False, decoder_type: str = 'fixed_var', decoder_cov_rank: int = 10, **kwargs):
         super().__init__(**kwargs)
 
-        self.img_shape = (1, 192 // self.downsample, 192 // self.downsample)
+        self.img_shape = (1, 192 // self.downsample, 192 // self.downsample) if self.downsample > 0 else (1, 192, 192)
 
         self.latent_dim = latent_dim
         self.logstd_init = logstd_init
@@ -413,7 +413,9 @@ class SVIExperiment(BaseCovariateExperiment):
 
         metrics = self.get_trace_metrics(batch)
 
-        return {'loss': loss, **metrics}
+        samples = self.build_test_samples(batch)
+
+        return {'loss': loss, **metrics, 'samples': samples}
 
     @classmethod
     def add_arguments(cls, parser):

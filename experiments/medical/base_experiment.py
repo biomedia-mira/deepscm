@@ -170,28 +170,31 @@ class BaseCovariateExperiment(PyroExperiment):
         self.ukbb_val = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/val.csv', crop_type='center', downsample=downsample)
         self.ukbb_test = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/test.csv', crop_type='center', downsample=downsample)
 
-        self.device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
+        self.torch_device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
 
         # TODO: change ranges and decide what to condition on
-        brain_volumes = 800000. + 300000 * torch.arange(3, dtype=torch.float, device=self.device)
+        brain_volumes = 800000. + 300000 * torch.arange(3, dtype=torch.float, device=self.torch_device)
         self.brain_volume_range = brain_volumes.repeat(3).unsqueeze(1)
-        ventricle_volumes = 10000. + 50000 * torch.arange(3, dtype=torch.float, device=self.device)
+        ventricle_volumes = 10000. + 50000 * torch.arange(3, dtype=torch.float, device=self.torch_device)
         self.ventricle_volume_range = ventricle_volumes.repeat_interleave(3).unsqueeze(1)
-        self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.device, dtype=torch.float).repeat((9, 1))
+        self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.age_flow_lognorm.loc = self.ukbb_train.metrics['age'].log().mean().to(self.device).float()
-        self.pyro_model.age_flow_lognorm.scale = self.ukbb_train.metrics['age'].log().std().to(self.device).float()
+        self.pyro_model.age_flow_lognorm.loc = self.ukbb_train.metrics['age'].log().mean().to(self.torch_device).float()
+        self.pyro_model.age_flow_lognorm.scale = self.ukbb_train.metrics['age'].log().std().to(self.torch_device).float()
 
-        self.pyro_model.ventricle_volume_flow_lognorm.loc = self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.device).float()
-        self.pyro_model.ventricle_volume_flow_lognorm.scale = self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.device).float()
+        self.pyro_model.ventricle_volume_flow_lognorm.loc = self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.torch_device).float()
+        self.pyro_model.ventricle_volume_flow_lognorm.scale = self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.torch_device).float()
 
-        self.pyro_model.brain_volume_flow_lognorm.loc = self.ukbb_train.metrics['brain_volume'].log().mean().to(self.device).float()
-        self.pyro_model.brain_volume_flow_lognorm.scale = self.ukbb_train.metrics['brain_volume'].log().std().to(self.device).float()
+        self.pyro_model.brain_volume_flow_lognorm.loc = self.ukbb_train.metrics['brain_volume'].log().mean().to(self.torch_device).float()
+        self.pyro_model.brain_volume_flow_lognorm.scale = self.ukbb_train.metrics['brain_volume'].log().std().to(self.torch_device).float()
 
         if self.hparams.validate:
             print(f'set ventricle_volume_flow_lognorm {self.pyro_model.ventricle_volume_flow_lognorm.loc} +/- {self.pyro_model.ventricle_volume_flow_lognorm.scale}')  # noqa: E501
             print(f'set age_flow_lognorm {self.pyro_model.age_flow_lognorm.loc} +/- {self.pyro_model.age_flow_lognorm.scale}')
             print(f'set brain_volume_flow_lognorm {self.pyro_model.brain_volume_flow_lognorm.loc} +/- {self.pyro_model.brain_volume_flow_lognorm.scale}')
+
+    def configure_optimizers(self):
+        pass
 
     def train_dataloader(self):
         return DataLoader(self.ukbb_train, batch_size=self.train_batch_size, shuffle=True)
@@ -214,11 +217,9 @@ class BaseCovariateExperiment(PyroExperiment):
         raise NotImplementedError()
 
     def validation_epoch_end(self, outputs):
-        num_items = len(outputs)
-        metrics = {('val/' + k): v / num_items for k, v in outputs[0].items()}
-        for r in outputs[1:]:
-            for k, v in r.items():
-                metrics[('val/' + k)] += v / num_items
+        outputs = self.assemble_epoch_end_outputs(outputs)
+
+        metrics = {('val/' + k): v for k, v in outputs.items()}
 
         if self.current_epoch % self.hparams.sample_img_interval == 0:
             self.sample_images()
@@ -226,13 +227,121 @@ class BaseCovariateExperiment(PyroExperiment):
         return {'val_loss': metrics['val/loss'], 'log': metrics}
 
     def test_epoch_end(self, outputs):
-        num_items = len(outputs)
-        metrics = {('test/' + k): v / num_items for k, v in outputs[0].items()}
-        for r in outputs[1:]:
-            for k, v in r.items():
-                metrics[('test/' + k)] += v / num_items
+        print('Assembling outputs')
+        outputs = self.assemble_epoch_end_outputs(outputs)
+
+        samples = outputs.pop('samples')
+
+        sample_trace = pyro.poutine.trace(self.pyro_model.sample).get_trace(self.hparams.test_batch_size)
+        samples['unconditional_samples'] = {
+            'x': sample_trace.nodes['x']['value'],
+            'brain_volume': sample_trace.nodes['brain_volume']['value'],
+            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'],
+            'age': sample_trace.nodes['age']['value'],
+            'sex': sample_trace.nodes['sex']['value']
+        }
+
+        cond_data = {'brain_volume': self.brain_volume_range, 'ventricle_volume': self.ventricle_volume_range, 'z': self.z_range}
+        cond_data = {
+            'brain_volume': self.brain_volume_range.repeat(self.hparams.test_batch_size, 1),
+            'ventricle_volume': self.ventricle_volume_range.repeat(self.hparams.test_batch_size, 1),
+            'z': torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9 * self.hparams.test_batch_size, 1))
+        }
+        sample_trace = pyro.poutine.trace(pyro.condition(self.pyro_model.sample, data=cond_data)).get_trace(9 * self.hparams.test_batch_size)
+        samples['conditional_samples'] = {
+            'x': sample_trace.nodes['x']['value'],
+            'brain_volume': sample_trace.nodes['brain_volume']['value'],
+            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'],
+            'age': sample_trace.nodes['age']['value'],
+            'sex': sample_trace.nodes['sex']['value']
+        }
+
+        print(f'Got samples: {tuple(samples.keys())}')
+
+        metrics = {('test/' + k): v for k, v in outputs.items()}
+
+        for k, v in samples.items():
+            p = os.path.join(self.trainer.logger.experiment.log_dir, f'{k}.pt')
+
+            print(f'Saving samples for {k} to {p}')
+
+            torch.save(v, p)
+
+        p = os.path.join(self.trainer.logger.experiment.log_dir, 'metrics.pt')
+        torch.save(metrics, p)
 
         return {'test_loss': metrics['test/loss'], 'log': metrics}
+
+    def assemble_epoch_end_outputs(self, outputs):
+        num_items = len(outputs)
+
+        def handle_row(batch, assembled=None):
+            if assembled is None:
+                assembled = {}
+
+            for k, v in batch.items():
+                if k not in assembled.keys():
+                    if isinstance(v, dict):
+                        assembled[k] = handle_row(v)
+                    elif isinstance(v, float):
+                        assembled[k] = v
+                    elif np.prod(v.shape) == 1:
+                        assembled[k] = v.cpu()
+                    else:
+                        assembled[k] = v.cpu()
+                else:
+                    if isinstance(v, dict):
+                        assembled[k] = handle_row(v, assembled[k])
+                    elif isinstance(v, float):
+                        assembled[k] += v
+                    elif np.prod(v.shape) == 1:
+                        assembled[k] += v.cpu()
+                    else:
+                        assembled[k] = torch.cat([assembled[k], v], 0).cpu()
+
+            return assembled
+
+        assembled = {}
+        for _, batch in enumerate(outputs):
+            assembled = handle_row(batch, assembled)
+
+        for k, v in assembled.items():
+            if (hasattr(v, 'shape') and np.prod(v.shape) == 1) or isinstance(v, float):
+                assembled[k] /= num_items
+
+        return assembled
+
+    def get_counterfactual_conditions(self, batch):
+        counterfactuals = {
+            'do(brain_volume=800000)': {'brain_volume': torch.ones_like(batch['brain_volume']) * 800000},
+            'do(brain_volume=1200000)': {'brain_volume': torch.ones_like(batch['brain_volume']) * 1200000},
+            'do(brain_volume=1600000)': {'brain_volume': torch.ones_like(batch['brain_volume']) * 1600000},
+            'do(ventricle_volume=10000)': {'ventricle_volume': torch.ones_like(batch['ventricle_volume']) * 10000},
+            'do(ventricle_volume=50000)': {'ventricle_volume': torch.ones_like(batch['ventricle_volume']) * 50000},
+            'do(ventricle_volume=110000)': {'ventricle_volume': torch.ones_like(batch['ventricle_volume']) * 110000},
+            'do(age=40)': {'age': torch.ones_like(batch['age']) * 40},
+            'do(age=80)': {'age': torch.ones_like(batch['age']) * 80},
+            'do(age=120)': {'age': torch.ones_like(batch['age']) * 120},
+            'do(sex=0)': {'sex': torch.zeros_like(batch['sex'])},
+            'do(sex=1)': {'sex': torch.ones_like(batch['sex'])},
+            'do(brain_volume=800000, ventricle_volume=224)': {'brain_volume': torch.ones_like(batch['brain_volume']) * 800000,
+                                                              'ventricle_volume': torch.ones_like(batch['ventricle_volume']) * 110000},
+            'do(brain_volume=1600000, ventricle_volume=10000)': {'brain_volume': torch.ones_like(batch['brain_volume']) * 1600000,
+                                                                 'ventricle_volume': torch.ones_like(batch['ventricle_volume']) * 10000}
+        }
+
+        return counterfactuals
+
+    def build_test_samples(self, batch):
+        samples = {}
+        samples['reconstruction'] = {'x': self.pyro_model.reconstruct(**batch, num_particles=self.hparams.num_sample_particles)}
+
+        counterfactuals = self.get_counterfactual_conditions(batch)
+
+        for name, condition in counterfactuals.items():
+            samples[name] = self.pyro_model._gen_counterfactual(obs=batch, condition=condition)
+
+        return samples
 
     def log_img_grid(self, tag, imgs, normalize=True, save_img=False, **kwargs):
         if save_img:
@@ -244,7 +353,7 @@ class BaseCovariateExperiment(PyroExperiment):
     def get_batch(self, loader):
         batch = next(iter(self.val_loader))
         if self.trainer.on_gpu:
-            batch = self.trainer.transfer_batch_to_gpu(batch, self.device)
+            batch = self.trainer.transfer_batch_to_gpu(batch, self.torch_device)
         return batch
 
     def log_kdes(self, tag, data, save_img=False):
