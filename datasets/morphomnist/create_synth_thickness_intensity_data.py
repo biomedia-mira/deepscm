@@ -23,7 +23,7 @@ def get_intensity(img):
     return avg_intensity
 
 
-def model(n_samples=None, scale=2., invert=False):
+def model(n_samples=None, scale=0.5, invert=False):
     with pyro.plate('observations', n_samples):
         thickness = 0.5 + pyro.sample('thickness', Gamma(10., 5.))
 
@@ -34,7 +34,7 @@ def model(n_samples=None, scale=2., invert=False):
 
         transforms = ComposeTransform([SigmoidTransform(), AffineTransform(64, 191)])
 
-        intensity = pyro.sample('intensity', TransformedDistribution(Normal(loc, 0.5), transforms))
+        intensity = pyro.sample('intensity', TransformedDistribution(Normal(loc, scale), transforms))
 
     return thickness, intensity
 
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', type=str, default='/vol/biomedic/users/dc315/mnist/original/', help="Path to MNIST (default: %(default)s)")
     parser.add_argument('-o', '--out-dir', type=str, help="Path to store new dataset")
     parser.add_argument('-d', '--digit-class', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], help="digit class to select")
-    parser.add_argument('-s', '--scale', type=float, default=2., help="scale of logit normal")
+    parser.add_argument('-s', '--scale', type=float, default=0.5, help="scale of logit normal")
     parser.add_argument('-i', '--invert', default=False, action='store_true', help="inverses correlation")
 
     args = parser.parse_args()
