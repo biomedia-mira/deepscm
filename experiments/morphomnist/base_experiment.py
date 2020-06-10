@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from morphomnist import measure
 import os
 from functools import partial
+import multiprocessing
 
 
 EXPERIMENT_REGISTRY = {}
@@ -193,14 +194,15 @@ class BaseCovariateExperiment(pl.LightningModule):
             torch.autograd.set_detect_anomaly(self.hparams.validate)
             pyro.enable_validation()
 
-    def measure_image(self, x, normalize=False, threshold=0.5):
+    def measure_image(self, x, normalize=False, threshold=0.5, use_progress_bar=False):
         imgs = x.detach().cpu().numpy()[:, 0]
 
         if normalize:
             imgs -= imgs.min()
             imgs /= imgs.max() + 1e-6
 
-        measurements = measure.measure_batch(imgs, threshold=threshold, use_progress_bar=False)
+        with multiprocessing.Pool() as pool:
+            measurements = measure.measure_batch(imgs, threshold=threshold, use_progress_bar=use_progress_bar, pool=pool)
 
         def get_intensity(imgs, threshold):
 
@@ -227,11 +229,11 @@ class BaseCovariateExperiment(pl.LightningModule):
         self.intensity_range = intensity.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.intensity_flow_norm_loc += mnist_train.metrics['intensity'].min().to(self.torch_device).float()
-        self.pyro_model.intensity_flow_norm_scale *= (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.torch_device).float()  # noqa: E501
+        self.pyro_model.intensity_flow_norm_loc = mnist_train.metrics['intensity'].min().to(self.torch_device).float()
+        self.pyro_model.intensity_flow_norm_scale = (mnist_train.metrics['intensity'].max() - mnist_train.metrics['intensity'].min()).to(self.torch_device).float()  # noqa: E501
 
-        self.pyro_model.thickness_flow_lognorm_loc += mnist_train.metrics['thickness'].log().mean().to(self.torch_device).float()
-        self.pyro_model.thickness_flow_lognorm_scale *= mnist_train.metrics['thickness'].log().std().to(self.torch_device).float()
+        self.pyro_model.thickness_flow_lognorm_loc = mnist_train.metrics['thickness'].log().mean().to(self.torch_device).float()
+        self.pyro_model.thickness_flow_lognorm_scale = mnist_train.metrics['thickness'].log().std().to(self.torch_device).float()
 
         print(f'set thickness_flow_lognorm.loc to {self.pyro_model.thickness_flow_lognorm.loc}')
 
@@ -281,21 +283,21 @@ class BaseCovariateExperiment(pl.LightningModule):
 
         sample_trace = pyro.poutine.trace(self.pyro_model.sample).get_trace(self.hparams.test_batch_size)
         samples['unconditional_samples'] = {
-            'x': sample_trace.nodes['x']['value'],
-            'thickness': sample_trace.nodes['thickness']['value'],
-            'intensity': sample_trace.nodes['intensity']['value']
+            'x': sample_trace.nodes['x']['value'].cpu(),
+            'thickness': sample_trace.nodes['thickness']['value'].cpu(),
+            'intensity': sample_trace.nodes['intensity']['value'].cpu()
         }
 
         cond_data = {
             'thickness': self.thickness_range.repeat(self.hparams.test_batch_size, 1),
             'intensity': self.intensity_range.repeat(self.hparams.test_batch_size, 1),
-            'z': torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9 * self.hparams.test_batch_size, 1))
+            'z': torch.randn([self.hparams.test_batch_size, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat_interleave(9, 0)
         }
         sample_trace = pyro.poutine.trace(pyro.condition(self.pyro_model.sample, data=cond_data)).get_trace(9 * self.hparams.test_batch_size)
         samples['conditional_samples'] = {
-            'x': sample_trace.nodes['x']['value'],
-            'thickness': sample_trace.nodes['thickness']['value'],
-            'intensity': sample_trace.nodes['intensity']['value']
+            'x': sample_trace.nodes['x']['value'].cpu(),
+            'thickness': sample_trace.nodes['thickness']['value'].cpu(),
+            'intensity': sample_trace.nodes['intensity']['value'].cpu()
         }
 
         print(f'Got samples: {tuple(samples.keys())}')
@@ -303,7 +305,8 @@ class BaseCovariateExperiment(pl.LightningModule):
         metrics = {('test/' + k): v for k, v in outputs.items()}
 
         for k, v in samples.items():
-            measured_thickness, measured_intensity = self.measure_image(v['x'])
+            print(f'Measuring samples for {k}')
+            measured_thickness, measured_intensity = self.measure_image(v['x'], use_progress_bar=True)
 
             p = os.path.join(self.trainer.logger.experiment.log_dir, f'{k}.pt')
 
@@ -347,7 +350,7 @@ class BaseCovariateExperiment(pl.LightningModule):
                     elif np.prod(v.shape) == 1:
                         assembled[k] += v.cpu()
                     else:
-                        assembled[k] = torch.cat([assembled[k], v], 0).cpu()
+                        assembled[k] = torch.cat([assembled[k], v.cpu()], 0)
 
             return assembled
 

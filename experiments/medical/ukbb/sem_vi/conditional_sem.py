@@ -18,19 +18,21 @@ class ConditionalVISEM(BaseVISEM):
 
         # ventricle_volume flow
         # TODO: decide on how many things to condition on
-        ventricle_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
+        ventricle_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.LeakyReLU(.1))
         self.ventricle_volume_flow_components = ConditionalAffineTransform(context_nn=ventricle_volume_net, event_dim=0)
         self.ventricle_volume_flow_transforms = [self.ventricle_volume_flow_components, self.ventricle_volume_flow_constraint_transforms]
 
         # brain_volume flow
         # TODO: decide on how many things to condition on
-        brain_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.Identity())
+        brain_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.LeakyReLU(.1))
         self.brain_volume_flow_components = ConditionalAffineTransform(context_nn=brain_volume_net, event_dim=0)
         self.brain_volume_flow_transforms = [self.brain_volume_flow_components, self.brain_volume_flow_constraint_transforms]
 
     @pyro_method
     def pgm_model(self):
-        sex_dist = Bernoulli(self.sex_logits).to_event(1)
+        sex_dist = Bernoulli(logits=self.sex_logits).to_event(1)
+
+        _ = self.sex_logits
 
         sex = pyro.sample('sex', sex_dist)
 
@@ -40,7 +42,7 @@ class ConditionalVISEM(BaseVISEM):
         age = pyro.sample('age', age_dist)
         age_ = self.age_flow_constraint_transforms.inv(age)
         # pseudo call to thickness_flow_transforms to register with pyro
-        _ = self.age_flow_transforms
+        _ = self.age_flow_components
 
         brain_context = torch.cat([sex, age_], 1)
 
@@ -49,7 +51,7 @@ class ConditionalVISEM(BaseVISEM):
 
         brain_volume = pyro.sample('brain_volume', brain_volume_dist)
         # pseudo call to intensity_flow_transforms to register with pyro
-        _ = self.brain_volume_flow_transforms
+        _ = self.brain_volume_flow_components
 
         brain_volume_ = self.brain_volume_flow_constraint_transforms.inv(brain_volume)
 
@@ -60,7 +62,7 @@ class ConditionalVISEM(BaseVISEM):
 
         ventricle_volume = pyro.sample('ventricle_volume', ventricle_volume_dist)
         # pseudo call to intensity_flow_transforms to register with pyro
-        _ = self.ventricle_volume_flow_transforms
+        _ = self.ventricle_volume_flow_components
 
         return age, sex, ventricle_volume, brain_volume
 

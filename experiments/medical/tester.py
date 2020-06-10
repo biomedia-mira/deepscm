@@ -11,14 +11,22 @@ if __name__ == '__main__':
     import os
 
     exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    exp_parser.add_argument('--experiment', '-e', help='which experiment to load', choices=tuple(EXPERIMENT_REGISTRY.keys()))
     exp_parser.add_argument('--checkpoint_path', '-c', help='which checkpoint to load')
 
     exp_args, other_args = exp_parser.parse_known_args()
 
     print(f'Running test with {exp_args}')
 
-    exp_class = EXPERIMENT_REGISTRY[exp_args.experiment]
+    base_path = os.path.join(exp_args.checkpoint_path, 'checkpoints')
+    checkpoint_path = os.path.join(base_path, os.listdir(base_path)[0])
+
+    print(f'using checkpoint {checkpoint_path}')
+
+    hparams = torch.load(checkpoint_path, map_location=torch.device('cpu'))['hparams']
+
+    print(f'found hparams: {hparams}')
+
+    exp_class = EXPERIMENT_REGISTRY[hparams['experiment']]
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser = Trainer.add_argparse_args(parser)
@@ -45,13 +53,6 @@ if __name__ == '__main__':
 
     trainer = Trainer.from_argparse_args(lightning_args)
     trainer.logger.experiment.log_dir = exp_args.checkpoint_path
-
-    base_path = os.path.join(exp_args.checkpoint_path, 'checkpoints')
-    checkpoint_path = os.path.join(base_path, os.listdir(base_path)[0])
-
-    hparams = torch.load(checkpoint_path)['hparams']
-
-    print(f'found hparams: {hparams}')
 
     model_class = MODEL_REGISTRY[hparams['model']]
 

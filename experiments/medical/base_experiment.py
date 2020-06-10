@@ -166,7 +166,8 @@ class BaseCovariateExperiment(pl.LightningModule):
 
     def prepare_data(self):
         downsample = None if self.hparams.downsample == -1 else self.hparams.downsample
-        self.ukbb_train = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/train.csv', crop_type='random', downsample=downsample)
+        train_crop_type = self.hparams.train_crop_type if hasattr(self.hparams, 'train_crop_type') else 'random'
+        self.ukbb_train = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/train.csv', crop_type=train_crop_type, downsample=downsample)  # noqa: E501
         self.ukbb_val = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/val.csv', crop_type='center', downsample=downsample)
         self.ukbb_test = UKBBDataset('/vol/biomedic2/np716/data/gemini/ukbb/ventricle_brain/test.csv', crop_type='center', downsample=downsample)
 
@@ -179,14 +180,14 @@ class BaseCovariateExperiment(pl.LightningModule):
         self.ventricle_volume_range = ventricle_volumes.repeat_interleave(3).unsqueeze(1)
         self.z_range = torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9, 1))
 
-        self.pyro_model.age_flow_lognorm_loc += (self.ukbb_train.metrics['age'].log().mean().to(self.torch_device).float())
-        self.pyro_model.age_flow_lognorm_scale *= (self.ukbb_train.metrics['age'].log().std().to(self.torch_device).float())
+        self.pyro_model.age_flow_lognorm_loc = (self.ukbb_train.metrics['age'].log().mean().to(self.torch_device).float())
+        self.pyro_model.age_flow_lognorm_scale = (self.ukbb_train.metrics['age'].log().std().to(self.torch_device).float())
 
-        self.pyro_model.ventricle_volume_flow_lognorm_loc += (self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.torch_device).float())
-        self.pyro_model.ventricle_volume_flow_lognorm_scale *= (self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.torch_device).float())
+        self.pyro_model.ventricle_volume_flow_lognorm_loc = (self.ukbb_train.metrics['ventricle_volume'].log().mean().to(self.torch_device).float())
+        self.pyro_model.ventricle_volume_flow_lognorm_scale = (self.ukbb_train.metrics['ventricle_volume'].log().std().to(self.torch_device).float())
 
-        self.pyro_model.brain_volume_flow_lognorm_loc += (self.ukbb_train.metrics['brain_volume'].log().mean().to(self.torch_device).float())
-        self.pyro_model.brain_volume_flow_lognorm_scale *= (self.ukbb_train.metrics['brain_volume'].log().std().to(self.torch_device).float())
+        self.pyro_model.brain_volume_flow_lognorm_loc = (self.ukbb_train.metrics['brain_volume'].log().mean().to(self.torch_device).float())
+        self.pyro_model.brain_volume_flow_lognorm_scale = (self.ukbb_train.metrics['brain_volume'].log().std().to(self.torch_device).float())
 
         if self.hparams.validate:
             print(f'set ventricle_volume_flow_lognorm {self.pyro_model.ventricle_volume_flow_lognorm.loc} +/- {self.pyro_model.ventricle_volume_flow_lognorm.scale}')  # noqa: E501
@@ -227,7 +228,9 @@ class BaseCovariateExperiment(pl.LightningModule):
         if self.current_epoch % self.hparams.sample_img_interval == 0:
             self.sample_images()
 
-        return {'val_loss': metrics['val/loss'], 'log': metrics}
+        val_loss = metrics['val/loss'] if isinstance(metrics['val/loss'], torch.Tensor) else torch.tensor(metrics['val/loss'])
+
+        return {'val_loss': val_loss, 'log': metrics}
 
     def test_epoch_end(self, outputs):
         print('Assembling outputs')
@@ -237,26 +240,26 @@ class BaseCovariateExperiment(pl.LightningModule):
 
         sample_trace = pyro.poutine.trace(self.pyro_model.sample).get_trace(self.hparams.test_batch_size)
         samples['unconditional_samples'] = {
-            'x': sample_trace.nodes['x']['value'],
-            'brain_volume': sample_trace.nodes['brain_volume']['value'],
-            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'],
-            'age': sample_trace.nodes['age']['value'],
-            'sex': sample_trace.nodes['sex']['value']
+            'x': sample_trace.nodes['x']['value'].cpu(),
+            'brain_volume': sample_trace.nodes['brain_volume']['value'].cpu(),
+            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'].cpu(),
+            'age': sample_trace.nodes['age']['value'].cpu(),
+            'sex': sample_trace.nodes['sex']['value'].cpu()
         }
 
         cond_data = {'brain_volume': self.brain_volume_range, 'ventricle_volume': self.ventricle_volume_range, 'z': self.z_range}
         cond_data = {
             'brain_volume': self.brain_volume_range.repeat(self.hparams.test_batch_size, 1),
             'ventricle_volume': self.ventricle_volume_range.repeat(self.hparams.test_batch_size, 1),
-            'z': torch.randn([1, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat((9 * self.hparams.test_batch_size, 1))
+            'z': torch.randn([self.hparams.test_batch_size, self.hparams.latent_dim], device=self.torch_device, dtype=torch.float).repeat_interleave(9, 0)
         }
         sample_trace = pyro.poutine.trace(pyro.condition(self.pyro_model.sample, data=cond_data)).get_trace(9 * self.hparams.test_batch_size)
         samples['conditional_samples'] = {
-            'x': sample_trace.nodes['x']['value'],
-            'brain_volume': sample_trace.nodes['brain_volume']['value'],
-            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'],
-            'age': sample_trace.nodes['age']['value'],
-            'sex': sample_trace.nodes['sex']['value']
+            'x': sample_trace.nodes['x']['value'].cpu(),
+            'brain_volume': sample_trace.nodes['brain_volume']['value'].cpu(),
+            'ventricle_volume': sample_trace.nodes['ventricle_volume']['value'].cpu(),
+            'age': sample_trace.nodes['age']['value'].cpu(),
+            'sex': sample_trace.nodes['sex']['value'].cpu()
         }
 
         print(f'Got samples: {tuple(samples.keys())}')
@@ -300,7 +303,7 @@ class BaseCovariateExperiment(pl.LightningModule):
                     elif np.prod(v.shape) == 1:
                         assembled[k] += v.cpu()
                     else:
-                        assembled[k] = torch.cat([assembled[k], v], 0).cpu()
+                        assembled[k] = torch.cat([assembled[k], v.cpu()], 0)
 
             return assembled
 
@@ -499,8 +502,9 @@ class BaseCovariateExperiment(pl.LightningModule):
         parser.add_argument('--test_batch_size', default=64, type=int, help="test batch size (default: %(default)s)")
         parser.add_argument('--validate', default=False, action='store_true', help="whether to validate (default: %(default)s)")
         parser.add_argument('--lr', default=1e-4, type=float, help="lr of deep part (default: %(default)s)")
-        parser.add_argument('--pgm_lr', default=1e-2, type=float, help="lr of pgm (default: %(default)s)")
+        parser.add_argument('--pgm_lr', default=5e-3, type=float, help="lr of pgm (default: %(default)s)")
         parser.add_argument('--l2', default=0., type=float, help="weight decay (default: %(default)s)")
         parser.add_argument('--use_amsgrad', default=False, action='store_true', help="use amsgrad? (default: %(default)s)")
+        parser.add_argument('--train_crop_type', default='random', choices=['random', 'center'], help="how to crop training images (default: %(default)s)")
 
         return parser

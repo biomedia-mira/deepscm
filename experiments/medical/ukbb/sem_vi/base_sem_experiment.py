@@ -310,12 +310,13 @@ class SVIExperiment(BaseCovariateExperiment):
     def _build_svi(self, loss=None):
         def per_param_callable(module_name, param_name):
             params = {'eps': 1e-5, 'amsgrad': self.hparams.use_amsgrad, 'weight_decay': self.hparams.l2}
-            if 'flow_components' in module_name:
+            if 'flow_components' in module_name or 'sex_logits' in param_name:
                 params['lr'] = self.hparams.pgm_lr
-                return params
             else:
                 params['lr'] = self.hparams.lr
-                return params
+
+            print(f'building opt for {module_name} - {param_name} with p: {params}')
+            return params
 
         if loss is None:
             loss = self.svi_loss
@@ -381,14 +382,14 @@ class SVIExperiment(BaseCovariateExperiment):
         model = self.svi.loss_class.trace_storage['model']
         guide = self.svi.loss_class.trace_storage['guide']
 
-        metrics['log p(x)'] = model.nodes['x']['log_prob_sum']
-        metrics['log p(age)'] = model.nodes['age']['log_prob_sum']
-        metrics['log p(sex)'] = model.nodes['sex']['log_prob_sum']
-        metrics['log p(ventricle_volume)'] = model.nodes['sex']['log_prob_sum']
-        metrics['log p(brain_volume)'] = model.nodes['sex']['log_prob_sum']
-        metrics['log p(z) - log q(z)'] = model.nodes['z']['log_prob_sum'] - guide.nodes['z']['log_prob_sum']
-        metrics['p(z)'] = model.nodes['z']['log_prob_sum']
-        metrics['q(z)'] = guide.nodes['z']['log_prob_sum']
+        metrics['log p(x)'] = model.nodes['x']['log_prob'].mean()
+        metrics['log p(age)'] = model.nodes['age']['log_prob'].mean()
+        metrics['log p(sex)'] = model.nodes['sex']['log_prob'].mean()
+        metrics['log p(ventricle_volume)'] = model.nodes['ventricle_volume']['log_prob'].mean()
+        metrics['log p(brain_volume)'] = model.nodes['brain_volume']['log_prob'].mean()
+        metrics['p(z)'] = model.nodes['z']['log_prob'].mean()
+        metrics['q(z)'] = guide.nodes['z']['log_prob'].mean()
+        metrics['log p(z) - log q(z)'] = metrics['p(z)'] - metrics['q(z)']
 
         return metrics
 
@@ -401,7 +402,8 @@ class SVIExperiment(BaseCovariateExperiment):
 
         x = x.float()
 
-        x += torch.rand_like(x)
+        if self.training:
+            x += torch.rand_like(x)
 
         return {'x': x, 'age': age, 'sex': sex, 'ventricle_volume': ventricle_volume, 'brain_volume': brain_volume}
 
