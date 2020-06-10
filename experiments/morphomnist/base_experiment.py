@@ -194,7 +194,7 @@ class BaseCovariateExperiment(pl.LightningModule):
             torch.autograd.set_detect_anomaly(self.hparams.validate)
             pyro.enable_validation()
 
-    def measure_image(self, x, normalize=False, threshold=0.5, use_progress_bar=False):
+    def measure_image(self, x, normalize=False, threshold=0.5):
         imgs = x.detach().cpu().numpy()[:, 0]
 
         if normalize:
@@ -202,7 +202,7 @@ class BaseCovariateExperiment(pl.LightningModule):
             imgs /= imgs.max() + 1e-6
 
         with multiprocessing.Pool() as pool:
-            measurements = measure.measure_batch(imgs, threshold=threshold, use_progress_bar=use_progress_bar, pool=pool)
+            measurements = measure.measure_batch(imgs, threshold=threshold, pool=pool)
 
         def get_intensity(imgs, threshold):
 
@@ -306,7 +306,7 @@ class BaseCovariateExperiment(pl.LightningModule):
 
         for k, v in samples.items():
             print(f'Measuring samples for {k}')
-            measured_thickness, measured_intensity = self.measure_image(v['x'], use_progress_bar=True)
+            measured_thickness, measured_intensity = self.measure_image(v['x'])
 
             p = os.path.join(self.trainer.logger.experiment.log_dir, f'{k}.pt')
 
