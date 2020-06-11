@@ -1,0 +1,12 @@
+jupyter
+numpy
+pandas
+git+https://github.com/pyro-ppl/pyro.git
+pytorch-lightning>=0.7.6
+scikit-image
+scikit-learn
+scipy
+seaborn
+tensorboard
+torch
+torchvision
