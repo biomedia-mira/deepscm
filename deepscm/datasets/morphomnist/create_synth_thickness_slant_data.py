@@ -7,8 +7,8 @@ import torch
 from pyro.distributions import Gamma, Normal
 from tqdm import tqdm
 
-from datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
-from datasets.morphomnist.transforms import SetThickness, SetSlant, ImageMorphology
+from deepscm.datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
+from deepscm.datasets.morphomnist.transforms import SetThickness, SetSlant, ImageMorphology
 
 
 def model_(n_samples=None):

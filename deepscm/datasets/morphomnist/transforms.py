@@ -1,8 +1,8 @@
 import numpy as np
 from skimage import morphology, transform
 
-from morphomnist.morpho import ImageMoments, ImageMorphology, bounding_parallelogram
-from morphomnist.perturb import Deformation, Perturbation
+from deepscm.morphomnist.morpho import ImageMoments, ImageMorphology, bounding_parallelogram
+from deepscm.morphomnist.perturb import Deformation, Perturbation
 
 
 def _get_disk(radius: int, scale: int):

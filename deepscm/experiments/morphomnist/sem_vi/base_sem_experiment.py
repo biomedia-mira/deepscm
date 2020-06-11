@@ -6,26 +6,23 @@ from pyro.infer import SVI, TraceGraph_ELBO
 from pyro.nn import pyro_method
 from pyro.optim import Adam
 from torch.distributions import Independent
-from arch.mnist import Decoder, Encoder
+from deepscm.arch.mnist import Decoder, Encoder
 from pyro.distributions import LowRankMultivariateNormal, MultivariateNormal, Normal, TransformedDistribution
-from distributions.transforms.reshape import ReshapeTransform
-from distributions.transforms.affine import LowerCholeskyAffine
+from deepscm.distributions.transforms.reshape import ReshapeTransform
+from deepscm.distributions.transforms.affine import LowerCholeskyAffine
 
 from pyro.distributions.transforms import ComposeTransform, AffineTransform
 
-from distributions.deep import DeepMultivariateNormal, DeepIndepNormal, Conv2dIndepNormal, DeepLowRankMultivariateNormal
+from deepscm.distributions.deep import DeepMultivariateNormal, DeepIndepNormal, Conv2dIndepNormal, DeepLowRankMultivariateNormal
 
 import torch
 
 import numpy as np
 
-from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
+from deepscm.experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
 
 class CustomELBO(TraceGraph_ELBO):
-    # just do one step of regular elbo
-    # condition on data (both guide and model) and change https://github.com/pyro-ppl/pyro/blob/dev/pyro/infer/tracegraph_elbo.py#L162-L169 from  - to +
-    # ^ or simply go through traces and multiply by -1 if node is observed....!!
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

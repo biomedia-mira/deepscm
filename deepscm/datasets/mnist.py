@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, TensorDataset
 
-from morphomnist import io
+from deepscm.morphomnist import io
 
 
 class MNISTLike(TensorDataset):

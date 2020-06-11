@@ -8,10 +8,10 @@ from pyro.distributions.transforms import (
 )
 from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.conditional import ConditionalTransformedDistribution
-from distributions.transforms.affine import ConditionalAffineTransform
+from deepscm.distributions.transforms.affine import ConditionalAffineTransform
 from pyro.nn import DenseNN
 
-from experiments.morphomnist.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
+from .base_sem_experiment import BaseVISEM, MODEL_REGISTRY
 
 
 class ConditionalVISEM(BaseVISEM):

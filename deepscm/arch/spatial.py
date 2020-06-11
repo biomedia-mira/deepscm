@@ -109,8 +109,8 @@ def _sobel_kernel2d() -> torch.Tensor:
                        [-2.,  0.,  2.],
                        [-1.,  0.,  1.]])
     dy = torch.tensor([[-1., -2., -1.],
-                       [ 0.,  0.,  0.],
-                       [ 1.,  2.,  1.]])
+                       [0.,  0.,  0.],
+                       [1.,  2.,  1.]])
     return .125 * torch.stack([dy, dx, dy, dx], 0).unsqueeze(1)
 
 

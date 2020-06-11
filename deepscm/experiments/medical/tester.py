@@ -1,5 +1,5 @@
-from experiments.medical import ukbb  # noqa: F401
-from experiments.medical.base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
+from . import ukbb  # noqa: F401
+from .base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
 
 import torch
 import inspect

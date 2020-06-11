@@ -13,21 +13,18 @@ from pyro.distributions.transforms import (
     ComposeTransform, AffineTransform, ExpTransform, Spline
 )
 from pyro.distributions import LowRankMultivariateNormal, MultivariateNormal, Normal, TransformedDistribution
-from arch.medical import Decoder, Encoder
-from distributions.transforms.reshape import ReshapeTransform
-from distributions.transforms.affine import LowerCholeskyAffine
+from deepscm.arch.medical import Decoder, Encoder
+from deepscm.distributions.transforms.reshape import ReshapeTransform
+from deepscm.distributions.transforms.affine import LowerCholeskyAffine
 
-from distributions.deep import DeepMultivariateNormal, DeepIndepNormal, Conv2dIndepNormal, DeepLowRankMultivariateNormal
+from deepscm.distributions.deep import DeepMultivariateNormal, DeepIndepNormal, Conv2dIndepNormal, DeepLowRankMultivariateNormal
 
 import numpy as np
 
-from experiments.medical.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
+from deepscm.experiments.medical.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
 
 class CustomELBO(TraceGraph_ELBO):
-    # just do one step of regular elbo
-    # condition on data (both guide and model) and change https://github.com/pyro-ppl/pyro/blob/dev/pyro/infer/tracegraph_elbo.py#L162-L169 from  - to +
-    # ^ or simply go through traces and multiply by -1 if node is observed....!!
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -69,8 +66,6 @@ class BaseVISEM(BaseSEM):
         self.use_upconv = use_upconv
         self.decoder_type = decoder_type
         self.decoder_cov_rank = decoder_cov_rank
-        # 'fixed_var', 'learned_var', 'independent_gaussian', 'multivariate_gaussian'
-        # TODO: This could be handled by passing a product distribution?
 
         # decoder parts
         decoder = Decoder(
@@ -138,7 +133,6 @@ class BaseVISEM(BaseSEM):
         # encoder parts
         self.encoder = Encoder(num_convolutions=self.num_convolutions, filters=self.enc_filters, latent_dim=self.latent_dim, input_size=self.img_shape)
 
-        # TODO: do we need to replicate the PGM here to be able to run conterfactuals? oO
         latent_layers = torch.nn.Sequential(torch.nn.Linear(self.latent_dim + self.context_dim, self.latent_dim), torch.nn.ReLU())
         self.latent_encoder = DeepIndepNormal(latent_layers, self.latent_dim, self.latent_dim)
 

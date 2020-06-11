@@ -6,7 +6,7 @@ from pyro.distributions import TransformedDistribution
 from pyro.infer.reparam.transform import TransformReparam
 from torch.distributions import Independent
 
-from datasets.morphomnist import MorphoMNISTLike
+from deepscm.datasets.morphomnist import MorphoMNISTLike
 from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, AffineTransform
 
 import torchvision.utils

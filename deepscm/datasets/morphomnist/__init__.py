@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
-from morphomnist import io
+from deepscm.morphomnist import io
 
 
 def _get_paths(root_dir, train):

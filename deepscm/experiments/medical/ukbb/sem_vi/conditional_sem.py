@@ -4,10 +4,10 @@ import pyro
 from pyro.nn import pyro_method
 from pyro.distributions import Normal, Bernoulli, TransformedDistribution
 from pyro.distributions.conditional import ConditionalTransformedDistribution
-from distributions.transforms.affine import ConditionalAffineTransform
+from deepscm.distributions.transforms.affine import ConditionalAffineTransform
 from pyro.nn import DenseNN
 
-from experiments.medical.ukbb.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
+from deepscm.experiments.medical.ukbb.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
 
 
 class ConditionalVISEM(BaseVISEM):
@@ -17,13 +17,11 @@ class ConditionalVISEM(BaseVISEM):
         super().__init__(**kwargs)
 
         # ventricle_volume flow
-        # TODO: decide on how many things to condition on
         ventricle_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.LeakyReLU(.1))
         self.ventricle_volume_flow_components = ConditionalAffineTransform(context_nn=ventricle_volume_net, event_dim=0)
         self.ventricle_volume_flow_transforms = [self.ventricle_volume_flow_components, self.ventricle_volume_flow_constraint_transforms]
 
         # brain_volume flow
-        # TODO: decide on how many things to condition on
         brain_volume_net = DenseNN(2, [8, 16], param_dims=[1, 1], nonlinearity=torch.nn.LeakyReLU(.1))
         self.brain_volume_flow_components = ConditionalAffineTransform(context_nn=brain_volume_net, event_dim=0)
         self.brain_volume_flow_transforms = [self.brain_volume_flow_components, self.brain_volume_flow_constraint_transforms]

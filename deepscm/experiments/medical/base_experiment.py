@@ -6,7 +6,7 @@ from pyro.distributions import TransformedDistribution
 from pyro.infer.reparam.transform import TransformReparam
 from torch.distributions import Independent
 
-from datasets.medical.ukbb import UKBBDataset
+from deepscm.datasets.medical.ukbb import UKBBDataset
 from pyro.distributions.transforms import ComposeTransform, SigmoidTransform, AffineTransform
 
 import torchvision.utils

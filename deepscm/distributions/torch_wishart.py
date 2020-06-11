@@ -13,7 +13,7 @@ def mvdigamma(x: torch.Tensor, p: int) -> torch.Tensor:
     return torch.digamma(x.unsqueeze(-1) - .5 * i).sum(-1)
 
 
-def mvtrigamma(x: torch.Tensor, p:int) -> torch.Tensor:
+def mvtrigamma(x: torch.Tensor, p: int) -> torch.Tensor:
     i = torch.arange(p, dtype=x.dtype, device=x.device)
     return torch.polygamma(1, x.unsqueeze(-1) - .5 * i).sum(-1)
 
@@ -113,7 +113,7 @@ class Wishart(ExponentialFamily):
     def log_normalizer(self):
         D = self.event_shape[-1]
         return torch.mvlgamma(.5 * self.df, D) + .5 * self.df \
-               * (D * _LOG_2 + 2. * _triangular_logdet(self.scale_tril))
+            * (D * _LOG_2 + 2. * _triangular_logdet(self.scale_tril))
 
     def log_prob(self, value):
         if self._validate_args:
@@ -193,7 +193,7 @@ class InverseWishart(Wishart):
     def log_normalizer(self):
         D = self.event_shape[-1]
         return torch.mvlgamma(.5 * self.df, D) + .5 * self.df \
-               * (D * _LOG_2 - 2. * _triangular_logdet(self.scale_tril))
+            * (D * _LOG_2 - 2. * _triangular_logdet(self.scale_tril))
 
     def log_prob(self, value):
         if self._validate_args:

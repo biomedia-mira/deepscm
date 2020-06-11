@@ -2,8 +2,8 @@ import torch
 import pyro
 import warnings
 
-from arch.medical import Decoder, Encoder
-from distributions.deep import DeepIndepNormal
+from deepscm.arch.medical import Decoder, Encoder
+from deepscm.distributions.deep import DeepIndepNormal
 
 from pyro.nn import pyro_method
 from pyro.distributions import Normal, Bernoulli, TransformedDistribution
@@ -12,11 +12,11 @@ from pyro.distributions.transforms import (
 )
 from pyro.distributions.torch_transform import ComposeTransformModule
 from pyro.distributions.conditional import ConditionalTransformedDistribution
-from distributions.transforms.affine import ConditionalAffineTransform
+from deepscm.distributions.transforms.affine import ConditionalAffineTransform
 from pyro.nn import DenseNN
 from torch import nn
 
-from experiments.medical.ukbb.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
+from deepscm.experiments.medical.ukbb.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
 
 
 class ConditionalSTNVISEM(BaseVISEM):

@@ -3,10 +3,10 @@ from typing import Generic, TypeVar, Union
 import torch
 from pyro.distributions import Categorical, MultivariateNormal, TorchDistribution
 
-from distributions.multivariate import MultivariateDistribution
-from distributions.natural_mvn import NaturalMultivariateNormal
-from distributions.products import product
-from util import posdef_solve
+from .multivariate import MultivariateDistribution
+from .natural_mvn import NaturalMultivariateNormal
+from .products import product
+from deepscm.util import posdef_solve
 
 T = TypeVar('T', bound=TorchDistribution)
 
@@ -85,7 +85,7 @@ class MultivariateMixture(MultivariateDistribution, Mixture[MultivariateDistribu
     def rename(self, new_var_names):
         super().rename(new_var_names)
         self.components.rename(new_var_names)
-    
+
     def marginalise(self, which):
         marg_components = self.components.marginalise(which)
         return Mixture(self.mixing, marg_components)

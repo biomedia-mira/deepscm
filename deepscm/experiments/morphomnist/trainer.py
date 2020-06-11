@@ -1,5 +1,5 @@
-from experiments import morphomnist  # noqa: F401
-from experiments.morphomnist.base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
+from deepscm.experiments import morphomnist  # noqa: F401
+from .base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
 
 if __name__ == '__main__':
     from pytorch_lightning import Trainer

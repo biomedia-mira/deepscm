@@ -5,9 +5,9 @@ import torch.distributions as td
 from torch.distributions import constraints
 from torch.distributions.utils import lazy_property
 
-from distributions.multivariate import MultivariateDistribution
-from distributions.mvn import MultivariateNormal
-from util import inverse_cholesky, mahalanobis, matvec, triangular_logdet
+from .multivariate import MultivariateDistribution
+from .mvn import MultivariateNormal
+from deepscm.util import inverse_cholesky, mahalanobis, matvec, triangular_logdet
 
 _LOG_2PI = math.log(2. * math.pi)
 

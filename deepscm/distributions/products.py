@@ -7,10 +7,10 @@ from torch import Tensor
 from pyro.distributions import Categorical as PyroCategorical, MultivariateNormal as PyroMultivariateNormal
 from torch.distributions import Distribution, Categorical, MultivariateNormal
 
-from distributions.factorised import Factorised
-from distributions.multivariate import MultivariateDistribution
-from distributions.natural_mvn import NaturalMultivariateNormal
-from util import posdef_solve
+from .factorised import Factorised
+from .multivariate import MultivariateDistribution
+from .natural_mvn import NaturalMultivariateNormal
+from deepscm.util import posdef_solve
 
 _PROD_REGISTRY = {}
 
@@ -203,7 +203,7 @@ def _prod_nmvn_nmvn(p: NaturalMultivariateNormal, q: NaturalMultivariateNormal, 
 
     pq = NaturalMultivariateNormal(pq_eta1, pq_eta2)
     pq_lognorm = pq.log_normalizer - p.log_normalizer.reshape(p_shape) \
-                 - q.log_normalizer.reshape(q_shape)
+        - q.log_normalizer.reshape(q_shape)
 
     return pq, pq_lognorm
 

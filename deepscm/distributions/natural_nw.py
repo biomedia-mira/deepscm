@@ -2,11 +2,10 @@ import torch
 import torch.distributions as td
 from torch.distributions import constraints
 
-from distributions.mvt import MultivariateStudentT
-from distributions.natural_mvn import NaturalMultivariateNormal
-from distributions.wishart import Wishart
-from util import cholseky_inverse, mahalanobis, matvec, outer, posdef_inverse, triangular_logdet, \
-    inverse_cholesky
+from .mvt import MultivariateStudentT
+from .natural_mvn import NaturalMultivariateNormal
+from .wishart import Wishart
+from deepscm.util import cholseky_inverse, mahalanobis, matvec, outer, posdef_inverse, triangular_logdet
 
 
 class _Symmetric(constraints.Constraint):

@@ -9,7 +9,7 @@ from torch._six import inf, nan
 from torch.distributions import constraints
 from torch.distributions.utils import _standard_normal, broadcast_all, lazy_property
 
-from util import triangular_logdet, matvec
+from deepscm.util import triangular_logdet, matvec
 
 
 class MultivariateStudentT(TorchDistribution):

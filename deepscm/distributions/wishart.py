@@ -6,7 +6,7 @@ from torch.distributions import constraints
 from torch.distributions.exp_family import ExponentialFamily
 from torch.distributions.utils import lazy_property
 
-import util
+from deepscm import util
 
 
 def mvdigamma(x: torch.Tensor, p: int) -> torch.Tensor:
@@ -14,7 +14,7 @@ def mvdigamma(x: torch.Tensor, p: int) -> torch.Tensor:
     return torch.digamma(x.unsqueeze(-1) - .5 * i).sum(-1)
 
 
-def mvtrigamma(x: torch.Tensor, p:int) -> torch.Tensor:
+def mvtrigamma(x: torch.Tensor, p: int) -> torch.Tensor:
     i = torch.arange(p, dtype=x.dtype, device=x.device)
     return torch.polygamma(1, x.unsqueeze(-1) - .5 * i).sum(-1)
 
@@ -88,7 +88,7 @@ class Wishart(TorchDistribution, ExponentialFamily):
     def log_normalizer(self):
         D = self.event_shape[-1]
         return torch.mvlgamma(self.concentration, D) + self.concentration \
-               * (D * math.log(2.) + 2. * util.triangular_logdet(self.scale_tril))
+            * (D * math.log(2.) + 2. * util.triangular_logdet(self.scale_tril))
 
     def log_prob(self, value):
         if self._validate_args:
@@ -101,7 +101,7 @@ class Wishart(TorchDistribution, ExponentialFamily):
     def expected_logdet(self):
         D = self.event_shape[-1]
         return mvdigamma(self.concentration, D) + D * math.log(2.) \
-               + 2. * util.triangular_logdet(self.scale_tril)
+            + 2. * util.triangular_logdet(self.scale_tril)
 
     def variance_logdet(self):
         return mvtrigamma(self.concentration, self.event_shape[-1])
@@ -110,7 +110,7 @@ class Wishart(TorchDistribution, ExponentialFamily):
         D = self.event_shape[-1]
         E_logdet = self.expected_logdet()
         return self.log_normalizer - (self.concentration - .5 * (D + 1)) * E_logdet \
-               + self.concentration * D
+            + self.concentration * D
 
     @property
     def _natural_params(self):

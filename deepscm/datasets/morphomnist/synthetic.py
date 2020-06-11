@@ -1,12 +1,11 @@
 import multiprocessing
-from typing import Callable, Sequence
 
 import numpy as np
 import pandas as pd
-from morphomnist.measure import measure_image, Morphometrics
-from morphomnist.morpho import ImageMorphology
+from deepscm.morphomnist.measure import measure_image, Morphometrics
+from deepscm.morphomnist.morpho import ImageMorphology
 
-from datasets.morphomnist import load_morphomnist_like, save_morphomnist_like, transforms
+from deepscm.datasets.morphomnist import load_morphomnist_like, save_morphomnist_like, transforms
 
 
 def subsample(filter_fn, source_dir, train: bool, target_dir):

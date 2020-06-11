@@ -5,7 +5,7 @@ from pyro.distributions import (
 )
 from torch import nn
 
-from distributions.params import MixtureParams
+from .params import MixtureParams
 
 
 class DeepConditional(nn.Module):

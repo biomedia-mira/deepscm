@@ -7,9 +7,9 @@ from pyro.distributions.transforms import (
     ComposeTransform, ExpTransform, Spline, SigmoidTransform
 )
 from pyro.distributions.torch_transform import ComposeTransformModule
-from distributions.transforms.affine import LearnedAffineTransform
+from deepscm.distributions.transforms.affine import LearnedAffineTransform
 
-from experiments.morphomnist.sem_vi.base_sem_experiment import BaseVISEM, MODEL_REGISTRY
+from .base_sem_experiment import BaseVISEM, MODEL_REGISTRY
 
 
 class ConditionalDecoderVISEM(BaseVISEM):

@@ -61,7 +61,7 @@ class Factorised(MultivariateDistribution):
 
     def rsample(self, sample_shape=torch.Size()):
         return torch.cat([factor.rsample(sample_shape) for factor in self.factors], dim=-1)
-    
+
     @property
     def num_variables(self):
         return len(self.factors)

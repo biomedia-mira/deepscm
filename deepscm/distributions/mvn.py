@@ -2,7 +2,7 @@ import torch
 import torch.distributions as td
 
 from .multivariate import MultivariateDistribution
-from util import matvec, posdef_inverse
+from deepscm.util import matvec, posdef_inverse
 
 
 class MultivariateNormal(MultivariateDistribution, td.MultivariateNormal):
@@ -27,8 +27,8 @@ class MultivariateNormal(MultivariateDistribution, td.MultivariateNormal):
 
     def _condition(self, y_dims, x_dims, x, squeeze):
         """Conditional distribution of Y|X"""
-        x_dims = torch.as_tensor(x_dims)#.unsqueeze(0)
-        y_dims = torch.as_tensor(y_dims)#.unsqueeze(0)
+        x_dims = torch.as_tensor(x_dims)  # .unsqueeze(0)
+        y_dims = torch.as_tensor(y_dims)  # .unsqueeze(0)
         x = torch.cat(x, dim=-1)
         # TODO: Correctly handle single dimensions (int)
         m, S = self.loc, self.covariance_matrix

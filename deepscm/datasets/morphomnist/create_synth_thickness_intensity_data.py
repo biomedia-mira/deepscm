@@ -9,8 +9,8 @@ from pyro.distributions.transforms import SigmoidTransform, AffineTransform, Com
 
 from tqdm import tqdm
 
-from datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
-from datasets.morphomnist.transforms import SetThickness, ImageMorphology
+from deepscm.datasets.morphomnist import load_morphomnist_like, save_morphomnist_like
+from deepscm.datasets.morphomnist.transforms import SetThickness, ImageMorphology
 
 
 def get_intensity(img):
