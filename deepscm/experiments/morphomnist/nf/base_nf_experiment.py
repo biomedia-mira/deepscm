@@ -5,7 +5,7 @@ import numpy as np
 
 from pyro.nn import pyro_method
 
-from experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
+from deepscm.experiments.morphomnist.base_experiment import BaseCovariateExperiment, BaseSEM, EXPERIMENT_REGISTRY, MODEL_REGISTRY  # noqa: F401
 
 from typing import Mapping
 

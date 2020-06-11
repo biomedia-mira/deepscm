@@ -10,13 +10,13 @@ from pyro.distributions.transforms import (
     Spline, ExpTransform, ComposeTransform, ConditionalAffineCoupling,
     GeneralizedChannelPermute, SigmoidTransform
 )
-from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
-from distributions.transforms.affine import ConditionalAffineTransform
-from arch.mnist import BasicFlowConvNet
+from deepscm.distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
+from deepscm.distributions.transforms.affine import ConditionalAffineTransform
+from deepscm.arch.mnist import BasicFlowConvNet
 from pyro.nn import DenseNN
-from distributions.transforms.normalisation import ActNorm
+from deepscm.distributions.transforms.normalisation import ActNorm
 
-from experiments.morphomnist.nf.base_nf_experiment import BaseFlowSEM, MODEL_REGISTRY
+from .base_nf_experiment import BaseFlowSEM, MODEL_REGISTRY
 
 
 class ConditionalFlowSEM(BaseFlowSEM):

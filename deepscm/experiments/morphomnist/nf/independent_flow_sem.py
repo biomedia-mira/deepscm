@@ -9,12 +9,12 @@ from pyro.distributions.transforms import (
     Spline, ExpTransform, ComposeTransform, AffineCoupling,
     GeneralizedChannelPermute, SigmoidTransform
 )
-from distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
-from distributions.transforms.affine import LearnedAffineTransform
-from arch.mnist import BasicFlowConvNet
-from distributions.transforms.normalisation import ActNorm
+from deepscm.distributions.transforms.reshape import ReshapeTransform, SqueezeTransform, TransposeTransform
+from deepscm.distributions.transforms.affine import LearnedAffineTransform
+from deepscm.arch.mnist import BasicFlowConvNet
+from deepscm.distributions.transforms.normalisation import ActNorm
 
-from experiments.morphomnist.nf.base_nf_experiment import BaseFlowSEM, MODEL_REGISTRY
+from .base_nf_experiment import BaseFlowSEM, MODEL_REGISTRY
 
 
 class IndependentFlowSEM(BaseFlowSEM):
