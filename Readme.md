@@ -15,7 +15,8 @@ If you use these tools or datasets in your publications, please consider citing 
 ```
 
 ## Structure
-This 
+This repository contains code and assets structured as follows:
+
 - `deepscm/`: contains the code used for running the experiments
     - `arch`: model architectures used in experiments
     - `datasets`: datasets used in experiments
