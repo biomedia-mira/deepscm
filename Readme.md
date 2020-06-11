@@ -21,16 +21,16 @@ If you use these tools or datasets in your publications, please consider citing 
 This repository contains code and assets structured as follows:
 
 - `deepscm/`: contains the code used for running the experiments
-    - `arch`: model architectures used in experiments
-    - `datasets`: datasets used in experiments
-    - `distributions`: implementations of useful distributions or transformations
-    - `experiments`: implementation of experiments
-    - `morphomnist`: soft link to morphomnist tools in submodules
-    - `submodules`: git submodules
-- `assets`
+    - `arch/`: model architectures used in experiments
+    - `datasets/`: script for dataset generation and data loading used in experiments
+    - `distributions/`: implementations of useful distributions or transformations
+    - `experiments/`: implementation of experiments
+    - `morphomnist/`: soft link to morphomnist tools in submodules
+    - `submodules/`: git submodules
+- `assets/`
     - `data/`:
-        - `morphomnist`: used synthetic morphomnist dataset
-        - `ukbb`: subset of the ukbb testset that was used for the counterfactuals 
+        - `morphomnist/`: used synthetic morphomnist dataset
+        - `ukbb/`: subset of the ukbb testset that was used for the counterfactuals 
     - `models/`: checkpoints of the trained models
 
 ## Requirements
