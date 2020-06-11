@@ -223,6 +223,7 @@ class BaseCovariateExperiment(pl.LightningModule):
         self.mnist_train, self.mnist_val = random_split(mnist_train, [num_train, num_val])
 
         self.torch_device = self.trainer.root_gpu if self.trainer.on_gpu else self.trainer.root_device
+        print(f'using device: {self.torch_device}')
         thicknesses = 1. + torch.arange(3, dtype=torch.float, device=self.torch_device)
         self.thickness_range = thicknesses.repeat(3).unsqueeze(1)
         intensity = 48 * torch.arange(3, dtype=torch.float, device=self.torch_device) + 64
