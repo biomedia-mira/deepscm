@@ -50,7 +50,7 @@ You can recreate the data using the data creation script as:
 ```
 python -m deepscm.datasets.morphomnist.create_synth_thickness_intensity_data --data-dir /path/to/morphomnist -o /path/to/dataset
 ```
-where `/path/to/morphomnist` refers to the directory containing the files from the `plain` [Morpho-MNIST](https://github.com/dccastro/Morpho-MNIST) dataset. Alternatively we provide the generated data in `data/morphomnist`. You can then train the models as:
+where `/path/to/morphomnist` refers to the directory containing the files from the original MNIST dataset with the `original` morphometrics from [Morpho-MNIST](https://github.com/dccastro/Morpho-MNIST) dataset. Alternatively we provide the generated data in `data/morphomnist`. You can then train the models as:
 ```
 python -m deepscm.experiments.morphomnist.trainer -e SVIExperiment -m {IndependentVISEM, ConditionalDecoderVISEM, ConditionalVISEM} --data_dir /path/to/data --default_root_dir /path/to/checkpoints --decoder_type fixed_var {--gpus 0}
 ```
