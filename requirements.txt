@@ -1,7 +1,7 @@
 jupyter
 numpy
 pandas
-git+https://github.com/pyro-ppl/pyro.git
+git+https://github.com/pyro-ppl/pyro.git@4b2752f829dbe12a3698b1cac81b300a7c682f63
 pytorch-lightning>=0.7.6
 scikit-image
 scikit-learn
