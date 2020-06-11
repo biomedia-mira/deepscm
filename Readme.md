@@ -1,4 +1,5 @@
 # Deep Structural Causal Models for Tractable Counterfactual Inference
+![Counterfactual Example](assets/example.png "Counterfactual Example")
 
 This repository contains the code for the paper
 > N. Pawlowski<sup>+</sup>, D. Castro<sup>+</sup>, B. Glocker, _Deep Structural Causal Models for Tractable Counterfactual Inference_, 2020 [[arXiv]](https://arxiv.org/abs/2006.)
