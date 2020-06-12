@@ -213,7 +213,7 @@ def interactive_plot(model_name):
 
         plt.show()
     
-    from ipywidgets import interactive, IntSlider, FloatSlider, HBox, VBox
+    from ipywidgets import interactive, IntSlider, FloatSlider, HBox, VBox, Checkbox, Dropdown
 
     def plot(image, age, sex, brain_volume, ventricle_volume, do_age, do_sex, do_brain_volume, do_ventricle_volume):
         intervention = {}
@@ -222,18 +222,20 @@ def interactive_plot(model_name):
         if do_sex:
             intervention['sex'] = sex
         if do_brain_volume:
-            intervention['brain_volume'] = brain_volume
+            intervention['brain_volume'] = brain_volume * 1000.
         if do_ventricle_volume:
-            intervention['ventricle_volume'] = ventricle_volume
+            intervention['ventricle_volume'] = ventricle_volume * 1000.
 
         plot_intervention(intervention, image)
 
-    w = interactive(plot, image=(0, 4), age=FloatSlider(min=30., max=120., continuous_update=False), do_age=False,
-              sex=[('female', 0.), ('male', 1.)], do_sex=False,
-              brain_volume=FloatSlider(min=800000., max=1600000., step=100000., continuous_update=False),
-              do_brain_volume=False,
-              ventricle_volume=FloatSlider(min=11000., max=110000., step=1000., continuous_update=False),
-              do_ventricle_volume=False,)
+    w = interactive(plot, image=IntSlider(min=0, max=4, description='Image #'), age=FloatSlider(min=30., max=120., step=1., continuous_update=False, description='Age'),
+                    do_age=Checkbox(description='do(age)'),
+              sex=Dropdown(options=[('female', 0.), ('male', 1.)], description='Sex'),
+                    do_sex=Checkbox(description='do(sex)'),
+              brain_volume=FloatSlider(min=800., max=1600., step=10., continuous_update=False, description='Brain Volume (ml):', style={'description_width': 'initial'}),
+              do_brain_volume=Checkbox(description='do(brain_volume)'),
+              ventricle_volume=FloatSlider(min=11., max=110., step=1., continuous_update=False, description='Ventricle Volume (ml):', style={'description_width': 'initial'}),
+              do_ventricle_volume=Checkbox(description='do(ventricle_volume)'),)
 
     ui = VBox([w.children[0], VBox([HBox([w.children[i + 1], w.children[i + 5]]) for i in range(4)]), w.children[-1]])
 
