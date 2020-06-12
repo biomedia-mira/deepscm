@@ -63,8 +63,8 @@ def fmt_intervention(intervention):
         var, value = intervention[3:-1].split('=')
         return f"$do({var_name[var]}={value_fmt[var](value)})$"
     else:
-        all_interventions = ', '.join([f'{var_name[k]}={value_fmt[k](v)}' for k, v in intervention.items()])
-        return f"$do({all_interventions})$"
+        all_interventions = ',\n'.join([f'${var_name[k]}={value_fmt[k](v)}$' for k, v in intervention.items()])
+        return f"do({all_interventions})"
 
 def prep_data(batch):
     x = batch['image'].unsqueeze(0) * 255.
@@ -171,43 +171,73 @@ def plot_gen_intervention_range(model_name, interventions, idx, normalise_all=Tr
     fig.tight_layout()
     plt.show()
     
-def interactive_plot(model_name, intervention, idx, num_samples=32):
-    fig, ax = plt.subplots(1, 4, figsize=(10, 2.5), gridspec_kw=dict(wspace=0, hspace=0))
-    lim = 0
+def interactive_plot(model_name):
+    def plot_intervention(intervention, idx, num_samples=32):
+        fig, ax = plt.subplots(1, 4, figsize=(10, 2.5), gridspec_kw=dict(wspace=0, hspace=0))
+        lim = 0
+
+        orig_data = prep_data(ukbb_test[idx])
+        x_test = orig_data['x']
+
+        pyro.clear_param_store()
+        cond = {k: torch.tensor([[v]]) for k, v in intervention.items()}
+        counterfactual = loaded_models[model_name].counterfactual(orig_data, cond, num_samples)
+
+        x = counterfactual['x']
+
+        diff = (x_test - x).squeeze()
+
+        lim = diff.abs().max()
+
+        ax[1].set_title('Original')
+        ax[1].imshow(x_test.squeeze(), 'Greys_r', vmin=0, vmax=255)
+
+        ax[2].set_title(fmt_intervention(intervention))
+        ax[2].imshow(x.squeeze(), 'Greys_r', vmin=0, vmax=255)
+
+        ax[3].set_title('Difference')
+        ax[3].imshow(diff, 'seismic', clim=[-lim, lim])
+
+        for axi in ax:
+            axi.axis('off')
+            axi.xaxis.set_major_locator(plt.NullLocator())
+            axi.yaxis.set_major_locator(plt.NullLocator())
+
+        att_str = '$s={sex}$\n$a={age}$\n$b={brain_volume}$\n$v={ventricle_volume}$'.format(
+            **{att: value_fmt[att](orig_data[att].item()) for att in ('sex', 'age', 'brain_volume', 'ventricle_volume')}
+        )
+
+        ax[0].text(0.5, 0.5, att_str, horizontalalignment='center',
+                      verticalalignment='center', transform=ax[0].transAxes,
+                      fontsize=mpl.rcParams['axes.titlesize'])
+
+        plt.show()
     
-    orig_data = prep_data(ukbb_test[idx])
-    x_test = orig_data['x']
-    
-    pyro.clear_param_store()
-    cond = {k: torch.tensor([[v]]) for k, v in intervention.items()}
-    counterfactual = loaded_models[model_name].counterfactual(orig_data, cond, num_samples)
+    from ipywidgets import interactive, IntSlider, FloatSlider, HBox, VBox
 
-    x = counterfactual['x']
+    def plot(image, age, sex, brain_volume, ventricle_volume, do_age, do_sex, do_brain_volume, do_ventricle_volume):
+        intervention = {}
+        if do_age:
+            intervention['age'] = age
+        if do_sex:
+            intervention['sex'] = sex
+        if do_brain_volume:
+            intervention['brain_volume'] = brain_volume
+        if do_ventricle_volume:
+            intervention['ventricle_volume'] = ventricle_volume
 
-    diff = (x_test - x).squeeze()
+        plot_intervention(intervention, image)
 
-    lim = diff.abs().max()
+    w = interactive(plot, image=(0, 4), age=FloatSlider(min=30., max=120., continuous_update=False), do_age=False,
+              sex=[('female', 0.), ('male', 1.)], do_sex=False,
+              brain_volume=FloatSlider(min=800000., max=1600000., step=100000., continuous_update=False),
+              do_brain_volume=False,
+              ventricle_volume=FloatSlider(min=11000., max=110000., step=1000., continuous_update=False),
+              do_ventricle_volume=False,)
 
-    ax[1].set_title('Original')
-    ax[1].imshow(x_test.squeeze(), 'Greys_r', vmin=0, vmax=255)
+    ui = VBox([w.children[0], VBox([HBox([w.children[i + 1], w.children[i + 5]]) for i in range(4)]), w.children[-1]])
 
-    ax[2].set_title(fmt_intervention(intervention))
-    ax[2].imshow(x.squeeze(), 'Greys_r', vmin=0, vmax=255)
 
-    ax[3].set_title('Difference')
-    ax[3].imshow(diff, 'seismic', clim=[-lim, lim])
+    display(ui)
 
-    for axi in ax:
-        axi.axis('off')
-        axi.xaxis.set_major_locator(plt.NullLocator())
-        axi.yaxis.set_major_locator(plt.NullLocator())
-    
-    att_str = '$s={sex}$\n$a={age}$\n$b={brain_volume}$\n$v={ventricle_volume}$'.format(
-        **{att: value_fmt[att](orig_data[att].item()) for att in ('sex', 'age', 'brain_volume', 'ventricle_volume')}
-    )
-
-    ax[0].text(0.5, 0.5, att_str, horizontalalignment='center',
-                  verticalalignment='center', transform=ax[0].transAxes,
-                  fontsize=mpl.rcParams['axes.titlesize'])
-
-    plt.show()
+    w.update()
