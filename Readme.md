@@ -1,6 +1,7 @@
 # Deep Structural Causal Models for Tractable Counterfactual Inference
 ![Counterfactual Example](assets/example.png "Counterfactual Example")
 
+[![arXiv](http://img.shields.io/badge/arXiv-2006.06485-B31B1B.svg)](https://arxiv.org/abs/2006.06485)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/biomedia-mira/deepscm/blob/master/deepscm/experiments/plotting/ukbb/interactive_plots.ipynb)
 
 This repository contains the code for the paper
