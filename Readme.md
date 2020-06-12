@@ -1,8 +1,9 @@
 # Deep Structural Causal Models for Tractable Counterfactual Inference
-![Counterfactual Example](assets/example.png "Counterfactual Example")
 
 [![arXiv](http://img.shields.io/badge/arXiv-2006.06485-B31B1B.svg)](https://arxiv.org/abs/2006.06485)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/biomedia-mira/deepscm/blob/master/deepscm/experiments/plotting/ukbb/interactive_plots.ipynb)
+
+![Counterfactual Example](assets/example.png "Counterfactual Example")
 
 This repository contains the code for the paper
 > N. Pawlowski<sup>+</sup>, D. C. Castro<sup>+</sup>, B. Glocker, _Deep Structural Causal Models for Tractable Counterfactual Inference_, 2020 [[arXiv]](https://arxiv.org/abs/2006.06485)
