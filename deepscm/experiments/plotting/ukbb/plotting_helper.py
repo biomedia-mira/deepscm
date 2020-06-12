@@ -170,3 +170,44 @@ def plot_gen_intervention_range(model_name, interventions, idx, normalise_all=Tr
     
     fig.tight_layout()
     plt.show()
+    
+def interactive_plot(model_name, intervention, idx, num_samples=32):
+    fig, ax = plt.subplots(1, 4, figsize=(10, 2.5), gridspec_kw=dict(wspace=0, hspace=0))
+    lim = 0
+    
+    orig_data = prep_data(ukbb_test[idx])
+    x_test = orig_data['x']
+    
+    pyro.clear_param_store()
+    cond = {k: torch.tensor([[v]]) for k, v in intervention.items()}
+    counterfactual = loaded_models[model_name].counterfactual(orig_data, cond, num_samples)
+
+    x = counterfactual['x']
+
+    diff = (x_test - x).squeeze()
+
+    lim = diff.abs().max()
+
+    ax[1].set_title('Original')
+    ax[1].imshow(x_test.squeeze(), 'Greys_r', vmin=0, vmax=255)
+
+    ax[2].set_title(fmt_intervention(intervention))
+    ax[2].imshow(x.squeeze(), 'Greys_r', vmin=0, vmax=255)
+
+    ax[3].set_title('Difference')
+    ax[3].imshow(diff, 'seismic', clim=[-lim, lim])
+
+    for axi in ax:
+        axi.axis('off')
+        axi.xaxis.set_major_locator(plt.NullLocator())
+        axi.yaxis.set_major_locator(plt.NullLocator())
+    
+    att_str = '$s={sex}$\n$a={age}$\n$b={brain_volume}$\n$v={ventricle_volume}$'.format(
+        **{att: value_fmt[att](orig_data[att].item()) for att in ('sex', 'age', 'brain_volume', 'ventricle_volume')}
+    )
+
+    ax[0].text(0.5, 0.5, att_str, horizontalalignment='center',
+                  verticalalignment='center', transform=ax[0].transAxes,
+                  fontsize=mpl.rcParams['axes.titlesize'])
+
+    plt.show()
