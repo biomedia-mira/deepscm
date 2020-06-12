@@ -2,7 +2,7 @@
 ![Counterfactual Example](assets/example.png "Counterfactual Example")
 
 This repository contains the code for the paper
-> N. Pawlowski<sup>+</sup>, D. C. Castro<sup>+</sup>, B. Glocker, _Deep Structural Causal Models for Tractable Counterfactual Inference_, 2020 [[arXiv]](https://arxiv.org/abs/2006.)
+> N. Pawlowski<sup>+</sup>, D. C. Castro<sup>+</sup>, B. Glocker, _Deep Structural Causal Models for Tractable Counterfactual Inference_, 2020 [[arXiv]](https://arxiv.org/abs/2006.06485)
 
 (<sup>+</sup>: joint first authors)
 
@@ -13,7 +13,7 @@ If you use these tools or datasets in your publications, please consider citing 
     author = {Pawlowski, Nick and Castro, Daniel C. and Glocker, Ben},
     title = {Deep Structural Causal Models for Tractable Counterfactual Inference},
     year = {2020},
-    eprint = {arXiv:2006.}
+    eprint = {arXiv:2006.06485}
 }
 ```
 
