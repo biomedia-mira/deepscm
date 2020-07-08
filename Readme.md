@@ -44,7 +44,7 @@ pip install numpy pandas pytorch-lightning>=0.7.6 scikit-image scikit-learn scip
 pip install git+https://github.com/pyro-ppl/pyro.git@4b2752f829dbe12a3698b1cac81b300a7c682f63
 ```
 or simply run `pip install -r requirements.txt`.
-You will also need to sync the submodule: `git submodule update --recursive`.
+You will also need to sync the submodule: `git submodule update --recursive --init`.
 
 ## Usage
 
