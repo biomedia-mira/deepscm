@@ -7,6 +7,8 @@ if __name__ == '__main__':
     import argparse
     import os
 
+    import warnings
+
     exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     exp_parser.add_argument('--experiment', '-e', help='which experiment to load', choices=tuple(EXPERIMENT_REGISTRY.keys()))
     exp_parser.add_argument('--model', '-m', help='which model to load', choices=tuple(MODEL_REGISTRY.keys()))
@@ -56,6 +58,8 @@ if __name__ == '__main__':
 
     trainer = Trainer.from_argparse_args(lightning_args)
 
+    if not args.validate:
+        warnings.filterwarnings('ignore', message='.*was not registered in the param store because.*', module=r'pyro\.primitives')
     model = model_class(**vars(model_params))
     experiment = exp_class(hparams, model)
 

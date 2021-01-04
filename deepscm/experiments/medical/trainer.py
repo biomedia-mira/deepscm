@@ -61,6 +61,7 @@ if __name__ == '__main__':
     model = model_class(**vars(model_params))
     experiment = exp_class(hparams, model)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("once")
-        trainer.fit(experiment)
+    if not args.validate:
+        warnings.filterwarnings('ignore', message='.*was not registered in the param store because.*', module=r'pyro\.primitives')
+
+    trainer.fit(experiment)
