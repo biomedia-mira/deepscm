@@ -440,10 +440,10 @@ class BaseCovariateExperiment(pl.LightningModule):
             try:
                 if len(covariates) == 1:
                     (x_n, x), = tuple(covariates.items())
-                    sns.kdeplot(np_val(x), ax=ax[i], shade=True, shade_lowest=False)
+                    sns.kdeplot(x=np_val(x), ax=ax[i], shade=True, thresh=0.05)
                 elif len(covariates) == 2:
                     (x_n, x), (y_n, y) = tuple(covariates.items())
-                    sns.kdeplot(np_val(x), np_val(y), ax=ax[i], shade=True, shade_lowest=False)
+                    sns.kdeplot(x=np_val(x), y=np_val(y), ax=ax[i], shade=True, thresh=0.05)
                     ax[i].set_ylabel(y_n)
                 else:
                     raise ValueError(f'got too many values: {len(covariates)}')
