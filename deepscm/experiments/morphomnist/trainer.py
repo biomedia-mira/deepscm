@@ -3,7 +3,7 @@ from .base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
 
 if __name__ == '__main__':
     from pytorch_lightning import Trainer
-    from pytorch_lightning.logging import TensorBoardLogger
+    from pytorch_lightning.loggers import TensorBoardLogger
     import argparse
     import os
 
