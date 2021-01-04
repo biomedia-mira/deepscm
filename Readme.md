@@ -21,6 +21,8 @@ If you use these tools or datasets in your publications, please consider citing 
 }
 ```
 
+Please refer to the [tagged code](https://github.com/biomedia-mira/deepscm/tree/neurips_2020) for the code used for the NeurIPS publication.
+
 ## Structure
 This repository contains code and assets structured as follows:
 
@@ -38,10 +40,9 @@ This repository contains code and assets structured as follows:
     - `models/`: checkpoints of the trained models
 
 ## Requirements
-We use Python 3.6.8 for all experiments and you will need to install the following packages:
+We use Python 3.7.2 for all experiments and you will need to install the following packages:
 ```
-pip install numpy pandas pytorch-lightning>=0.7.6 scikit-image scikit-learn scipy seaborn tensorboard torch torchvision
-pip install git+https://github.com/pyro-ppl/pyro.git@4b2752f829dbe12a3698b1cac81b300a7c682f63
+pip install numpy pandas pyro-ppl pytorch-lightning scikit-image scikit-learn scipy seaborn tensorboard torch torchvision
 ```
 or simply run `pip install -r requirements.txt`.
 You will also need to sync the submodule: `git submodule update --recursive --init`.
