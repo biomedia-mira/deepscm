@@ -419,7 +419,9 @@ class SVIExperiment(BaseCovariateExperiment):
         tensorboard_logs = {('train/' + k): v for k, v in metrics.items()}
         tensorboard_logs['train/loss'] = loss
 
-        return {'loss': torch.Tensor([loss]), 'log': tensorboard_logs}
+        self.log_dict(tensorboard_logs)
+
+        return torch.Tensor([loss])
 
     def validation_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)

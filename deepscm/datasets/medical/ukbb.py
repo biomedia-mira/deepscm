@@ -42,7 +42,7 @@ class UKBBDataset(Dataset):
                 raise ValueError('unknwon crop type: {}'.format(self.crop_type))
 
         if self.downsample is not None and self.downsample > 1:
-            transform_list += [tv.transforms.Resize(np.array(self.crop_size) // self.downsample)]
+            transform_list += [tv.transforms.Resize(tuple(np.array(self.crop_size) // self.downsample))]
 
         transform_list += [tv.transforms.ToTensor()]
 
