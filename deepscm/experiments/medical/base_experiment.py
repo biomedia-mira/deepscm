@@ -230,9 +230,7 @@ class BaseCovariateExperiment(pl.LightningModule):
         if self.current_epoch % self.hparams.sample_img_interval == 0:
             self.sample_images()
 
-        val_loss = metrics['val/loss'] if isinstance(metrics['val/loss'], torch.Tensor) else torch.tensor(metrics['val/loss'])
-
-        return {'val_loss': val_loss, 'log': metrics}
+        self.log_dict(metrics)
 
     def test_epoch_end(self, outputs):
         print('Assembling outputs')
@@ -278,7 +276,7 @@ class BaseCovariateExperiment(pl.LightningModule):
         p = os.path.join(self.trainer.logger.experiment.log_dir, 'metrics.pt')
         torch.save(metrics, p)
 
-        return {'test_loss': metrics['test/loss'], 'log': metrics}
+        self.log_dict(metrics)
 
     def assemble_epoch_end_outputs(self, outputs):
         num_items = len(outputs)
@@ -361,7 +359,7 @@ class BaseCovariateExperiment(pl.LightningModule):
     def get_batch(self, loader):
         batch = next(iter(self.val_loader))
         if self.trainer.on_gpu:
-            batch = self.trainer.transfer_batch_to_gpu(batch, self.torch_device)
+            batch = self.trainer.accelerator_backend.to_device(batch, self.torch_device)
         return batch
 
     def log_kdes(self, tag, data, save_img=False):
@@ -373,10 +371,10 @@ class BaseCovariateExperiment(pl.LightningModule):
             try:
                 if len(covariates) == 1:
                     (x_n, x), = tuple(covariates.items())
-                    sns.kdeplot(np_val(x), ax=ax[i], shade=True, shade_lowest=False)
+                    sns.kdeplot(x=np_val(x), ax=ax[i], shade=True, thresh=0.05)
                 elif len(covariates) == 2:
                     (x_n, x), (y_n, y) = tuple(covariates.items())
-                    sns.kdeplot(np_val(x), np_val(y), ax=ax[i], shade=True, shade_lowest=False)
+                    sns.kdeplot(x=np_val(x), y=np_val(y), ax=ax[i], shade=True, thresh=0.05)
                     ax[i].set_ylabel(y_n)
                 else:
                     raise ValueError(f'got too many values: {len(covariates)}')

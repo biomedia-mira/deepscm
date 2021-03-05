@@ -3,9 +3,11 @@ from .base_experiment import EXPERIMENT_REGISTRY, MODEL_REGISTRY
 
 if __name__ == '__main__':
     from pytorch_lightning import Trainer
-    from pytorch_lightning.logging import TensorBoardLogger
+    from pytorch_lightning.loggers import TensorBoardLogger
     import argparse
     import os
+
+    import warnings
 
     exp_parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     exp_parser.add_argument('--experiment', '-e', help='which experiment to load', choices=tuple(EXPERIMENT_REGISTRY.keys()))
@@ -56,6 +58,8 @@ if __name__ == '__main__':
 
     trainer = Trainer.from_argparse_args(lightning_args)
 
+    if not args.validate:
+        warnings.filterwarnings('ignore', message='.*was not registered in the param store because.*', module=r'pyro\.primitives')
     model = model_class(**vars(model_params))
     experiment = exp_class(hparams, model)
 

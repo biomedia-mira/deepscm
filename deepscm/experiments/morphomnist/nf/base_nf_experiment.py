@@ -133,7 +133,9 @@ class NormalisingFlowsExperiment(BaseCovariateExperiment):
 
         tensorboard_logs = {'train/loss': loss, **nats_per_dim, **lls}
 
-        return {'loss': loss, 'log': tensorboard_logs, **lls}
+        self.log_dict(tensorboard_logs)
+
+        return loss
 
     def validation_step(self, batch, batch_idx):
         batch = self.prep_batch(batch)
